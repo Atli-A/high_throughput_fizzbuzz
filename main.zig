@@ -3,21 +3,7 @@ const assert = std.debug.assert;
 
 const memmove = std.mem.copyForwards;
 
-// 9 MiB/s
-fn naive() !void {
-    const stdout = std.io.getStdOut().writer();
-    for (0..100_000_000) |i| {
-        if (i % 3 == 0 and i % 5 == 0) {
-            try stdout.print("FizzBuzz\n", .{});
-        } else if (i % 3 == 0) {
-            try stdout.print("Fizz\n", .{});
-        } else if (i % 5 == 0) {
-            try stdout.print("Buzz\n", .{});
-        } else {
-            try stdout.print("{d}\n", .{i});
-        }
-    }
-}
+
 
 const BinaryCodedDecimal = struct {
     
@@ -39,6 +25,13 @@ const BinaryCodedDecimal = struct {
         @memset(self.slice, '0');
     }
 
+    fn is_last(self: BinaryCodedDecimal) bool {
+        for (self.slice) |letter| {
+            if (letter != '9') return false;
+        }
+        return true;
+    }
+
     // increment must be less than 10
     // `to` must be the same length as `self.slice`
     fn write_increment(self: BinaryCodedDecimal, to: []u8, increment: usize) void {
@@ -50,7 +43,7 @@ const BinaryCodedDecimal = struct {
         while (i >= 0) : ({i -= 1; increment_remaining /= 10;}) {
             carry += @intCast(increment_remaining % 10);
             const was = self.slice[i];
-            to[i] = (carry + was) % ('0' + 10);
+            to[i] = (((was - '0') + carry) % 10) + '0';
             // saturating subtraction intentional
             carry = (carry + was) -| ('0' + 10);
             if (increment_remaining == 0 and carry == 0) break;
@@ -61,7 +54,7 @@ const BinaryCodedDecimal = struct {
         if (self.slice.ptr != to.ptr) memmove(u8, to, self.slice[0..i]);
     }
 
-    fn self_increment(self: BinaryCodedDecimal, increment: u8) void {
+    fn self_increment(self: BinaryCodedDecimal, increment: usize) void {
         self.write_increment(self.slice, increment);
     }
 };
@@ -81,50 +74,47 @@ const Buzzer = struct {
     allocator: std.mem.Allocator,
     digits: usize,
 
-    // derived
+    // derived from the length of the numbers and stuff
     segment_size: usize,
+
+    // the block size is a multiple of the segment size
     block_size: usize,
     
     pub fn init(allocator: std.mem.Allocator, digits: usize) Self {
+        const seg = 8*(digits+1) + 4*FIZZ_STR.len + 2*BUZZ_STR.len + 1*FIZZBUZZ_STR.len;
         return Self{
             .digits = digits,
-            .segment_size =  8*(digits+1) + 4*FIZZ_STR.len + 2*BUZZ_STR.len + 1*FIZZBUZZ_STR.len,
-            .block_size = 1 << 12,
+            .segment_size =  seg,
+            .block_size = (1 << 10)*seg,
             .allocator = allocator,
         };
     }
 
+    // Forms a bridge between two buffers
+//    fn bridge(self: Self, bcd: BinaryCodedDecimal, buffer1: []u8, buffer2: []u8) void {
+        
+//    }
+
     fn my_test(self: Self) !void {
-        const x = try self.allocator.alloc(u8, self.segment_size);
+        const stdout = std.io.getStdOut().writer();
+        const x = try self.allocator.alloc(u8, 10000*self.segment_size);
         const bcd_slice = try self.allocator.alloc(u8, self.digits);
         const bcd = BinaryCodedDecimal.init(bcd_slice);
         bcd.first_of_length();
-        bcd.write_increment(bcd.slice, 1);
-        self.write_segment(bcd, x, 10, 15);
+        bcd.self_increment(1);
+        const written_bytes = self.write_block(x, bcd, 0);
         defer self.allocator.free(x);
         defer self.allocator.free(bcd_slice);
-        std.debug.print("{s}", .{x});
+        try stdout.print("{s}", .{x[0..written_bytes]});
     }
 
-    fn write_block(self: Self, block: []u8, bcd_starter: BinaryCodedDecimal, previous_block_ended_on: usize) {
-        assert(previous_block_ended_on <= 15);
 
-        var write_index: usize = 0;
-        write_index += self.write_segment(bcd_starter, block[0..(self.segment_size - previous_block_ended_on)], previous_block_ended_on+1, 15);
-
-        const start_offset = 15 - previous_block_ended_on;
-        for (block.len/self.segment_size) |i| {
-            write_index += self.write_segment(bcd_starter, block[]);
-        }
-        
-    }
     
     /// This is a segment
     /// 1 2 Fizz 4 Buzz Fizz 7 8 Fizz Buzz 11 Fizz 13 14 FizzBuzz
     /// bcd should be the first entry in our sequence
     /// returns number of chars written
     fn write_segment(self: Self, bcd: BinaryCodedDecimal, at: []u8, start_index: usize, end_index: usize) usize {
-        assert(at.len >= self.segment_size);
         assert(start_index <= 15);
         assert(end_index <= 15);
 
@@ -164,19 +154,73 @@ const Buzzer = struct {
         }
         return write_index;
     }
+
+    /// returns what block number it ended on 
+    fn write_block(self: Self, block: []u8, bcd_starter: BinaryCodedDecimal, previous_block_ended_on: usize) usize {
+        assert(previous_block_ended_on <= 15);
+
+        var write_index: usize = 0;
+
+        var end = previous_block_ended_on;
+        //const start_offset = 15 - previous_block_ended_on;
+        while (write_index <= block.len - self.segment_size) {
+            write_index += self.write_segment(bcd_starter, block[write_index..write_index+self.segment_size], end, 15);
+            end = 0;
+            bcd_starter.self_increment(15);
+        }
+
+        return write_index;
+    }
+
 };
+
+
+// 16.8 MiB/s
+fn naive2() !void {
+    const stdout = std.io.getStdOut().writer();
+    var i: usize = 0;
+    while (true) : (i += 15) {
+        try stdout.print("{d}\n{d}\nFizz\n{d}\nBuzz\nFizz\n{d}\n{d}\nFizz\nBuzz\n{d}\nFizz\n{d}\n{d}\nFizzBuzz\n", .{i+1, i+2, i+4, i+7, i+8, i+11, i+13,i+14});
+    }
+}
+
+// 9 MiB/s
+fn naive() !void {
+    const stdout = std.io.getStdOut().writer();
+    for (0..100_000_000) |i| {
+        if (i % 3 == 0 and i % 5 == 0) {
+            try stdout.print("FizzBuzz\n", .{});
+        } else if (i % 3 == 0) {
+            try stdout.print("Fizz\n", .{});
+        } else if (i % 5 == 0) {
+            try stdout.print("Buzz\n", .{});
+        } else {
+            try stdout.print("{d}\n", .{i});
+        }
+    }
+}
     
 
 pub fn main() !void {
-    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
-    const allocator = gpa.allocator();
+//    var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+//    const allocator = gpa.allocator();
 
-    defer {
-        const deinit_status = gpa.deinit();
+//    defer {
+//        const deinit_status = gpa.deinit();
         //fail test; can't try in defer as defer is executed after we return
-        if (deinit_status == .leak) @panic("TEST FAIL");
-    }
+//        if (deinit_status == .leak) @panic("TEST FAIL");
+//    }
 
-    var buzzer = Buzzer.init(allocator, 10);
-    try buzzer.my_test();
+//    var buzzer = Buzzer.init(allocator, 10);
+    //try buzzer.my_test();
+
+
+    var x: [10]u8 = undefined;
+    const bcd = BinaryCodedDecimal.init(x[0..(x.len)]);
+    bcd.first_of_length();
+    std.debug.print("{s}\n", .{bcd.slice});
+    bcd.self_increment(98);
+    std.debug.print("{s}\n", .{bcd.slice});
+    bcd.self_increment(98);
+    std.debug.print("{s}\n", .{bcd.slice});
 }
