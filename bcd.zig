@@ -230,3 +230,14 @@ pub fn main() !void {
     }
 
 }
+
+
+
+/// the current problem and how to fix it 
+/// currently realized a problem with how this is done
+/// right now we are adding to the whole block like it is one thing.
+/// this is close to but not correct
+/// however, i think this is saveable
+/// first start using the newlines and other text as buffers
+/// then add to the first byte of a number but not the whole thing
+/// this can be done comptime at the begginning
