@@ -1,14 +1,5 @@
 const std = @import("std");
 
-
-
-
-
-
-
-
-
-
 /// Golden Sequence:
 ///
 /// Consider one fizzbuzz segment which matches the following 
@@ -39,7 +30,7 @@ const std = @import("std");
 
 
 // fizzbuzz tokens are seperated by a seperator
-const FizzBuzzToken = {
+const FizzBuzzToken = enum {
     Number, 
     Fizz, 
     Buzz, 
@@ -47,20 +38,23 @@ const FizzBuzzToken = {
 };
 
 const StandardFizzBuzz = [_]FizzBuzzToken{
-    Number, Number, Fizz, Number Buzz,
-    Fizz, Number, Number, Fizz, Buzz,
-    Number, Fizz, Number, Number, FizzBuzz,
+    FizzBuzzToken.Number, FizzBuzzToken.Number, FizzBuzzToken.Fizz, 
+    FizzBuzzToken.Number, FizzBuzzToken.Buzz, FizzBuzzToken.Fizz, 
+    FizzBuzzToken.Number, FizzBuzzToken.Number, FizzBuzzToken.Fizz, 
+    FizzBuzzToken.Buzz, FizzBuzzToken.Number, FizzBuzzToken.Fizz, 
+    FizzBuzzToken.Number, FizzBuzzToken.Number, FizzBuzzToken.FizzBuzz,
 };
 
 fn TokensToSequenceLen(sequence: []FizzBuzzToken, num_len: usize, fizz_len: usize, buzz_len: usize, fizzbuzz_len: usize, sep_len: usize) usize {
     const total: usize = 0;
     for (sequence) |token| {
-        total += switch (FizzBuzzToken) {
-            Number => num_len,
-            Fizz => fizz_len,
-            Buzz => buzz_len,
-            FizzBuzz => fizzbuzz_len,
+        total += switch (token) {
+            FizzBuzzToken.Number => num_len,
+            FizzBuzzToken.Fizz => fizz_len,
+            FizzBuzzToken.Buzz => buzz_len,
+            FizzBuzzToken.FizzBuzz => fizzbuzz_len,
         };
+        total += sep_len;
     }
     return total;
 }
@@ -68,35 +62,36 @@ fn TokensToSequenceLen(sequence: []FizzBuzzToken, num_len: usize, fizz_len: usiz
 
 
 fn GoldenSegment(comptime num_len: usize) type {
-    const FIZZ = "Fizz";
-    const BUZZ = "Buzz";
-    const FIZZBUZZ = "FizzBuzz";
+    const FIZZ: []const u8 = "Fizz";
+    const BUZZ: []const u8 = "Buzz";
+    const FIZZBUZZ: []const u8 = "FizzBuzz";
+    const SEPERATOR: []const u8 = "\n";
+    const ZERO: []const u8 = ([1]u8{0})[0..];
 
-
-    const textLayer: []u8 = {};
-    for (StandardFizzBuzz) |token| {
-        textLayer = textLayer ++ switch (token) {
-            Number => ([]u8{0})**num_len,
-            Fizz => FIZZ,
-            Buzz => BUZZ,
-            FizzBuzz => FIZZBUZZ,
-        }
+    comptime var textLayer: []u8 = &[0]u8{};
+    inline for (StandardFizzBuzz) |token| {
+        
+        const temp: []u8 = switch (token) {
+            FizzBuzzToken.Number => ZERO**num_len,
+            FizzBuzzToken.Fizz => FIZZ,
+            FizzBuzzToken.Buzz => BUZZ,
+            FizzBuzzToken.FizzBuzz => FIZZBUZZ,
+        };
+        textLayer = textLayer ++ temp;
+        textLayer = textLayer ++ SEPERATOR;
     }
+    @compileLog(textLayer);
 
-    @comileLog(textLayer);
+
 
     return struct {
         const Self = @This();
-
-        fn init(allocator: std.mem.Allocator, num_len: usize) !Self {
-            const segment_len = TokensToSequenceLen(&StandardFizzBuzz, num_len, FIZZ.len, BUZZ.len, FIZZBUZZ.len);
-
-            const segment = try allocator.alloc(segment_len);
-
-            
-        }
-    }
+    };
 }
 
 
-GoldenSegment(1);
+
+pub fn main() !void {
+    const x: GoldenSegment(1) = undefined;
+    _ = x;
+}
