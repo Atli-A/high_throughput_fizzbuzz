@@ -163,7 +163,7 @@ fn GoldenSegment(comptime num_len: comptime_int) type {
         }
 
         fn to_str(self: Self) VectorType {
-            const safe_version = false;
+            const safe_version = true;
             var reformed_numbers: VectorType = undefined;
             if (safe_version) {
                 reformed_numbers = (
