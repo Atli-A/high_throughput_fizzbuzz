@@ -192,7 +192,7 @@ fn GoldenSegment(comptime num_len: comptime_int) type {
 
 
         /// destructive
-        fn add(self: Self, adding: u64) void {
+        fn add(self: *Self, adding: u64) void {
 
             // add to the number 
             self.data.number += @intCast(adding);
@@ -219,7 +219,14 @@ pub fn main() !void {
     const T = GoldenSegment(3);
     var x = try T.init(std.heap.page_allocator);
     x.initial();
-    const asdf: [T.len_bytes]u8 = x.to_str();
+    var asdf: [T.len_bytes]u8 = x.to_str();
     dprint("{s}\n", .{asdf});
+    asdf = x.to_str();
+    dprint("{s}\n", .{asdf});
+    for (0..10) |_| {
+        x.add(1);
+        asdf = x.to_str();
+        dprint("{s}\n", .{asdf});
+    }
 
 }
