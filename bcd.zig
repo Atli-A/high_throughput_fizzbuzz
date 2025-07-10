@@ -112,7 +112,8 @@ fn GoldenSegment(comptime num_len: comptime_int) type {
 
     const num_bytes = textLayerSlice.len;
 
-    const NumberType = createInt(num_bytes);
+    const NumberType = createInt(num_bytes*8);
+//    const NumberStrInt = createInt(num_len*8);
     const VectorType = @Vector(num_bytes, u8);
     const VectorBoolType = @Vector(num_bytes, bool);
 //    const ArrayType = [num_bytes]u8;
@@ -123,12 +124,10 @@ fn GoldenSegment(comptime num_len: comptime_int) type {
     const textMask: VectorBoolType = textLayer != @as(VectorType, @splat(0x00));
 
     // the default starting number and stuff
-    const number_default = @as(VectorType, @splat(0b1111_0111));
+    const number_default = @as(VectorType, @splat(0b1111_0110));
     const text_default = @as(VectorType, @splat(0xFF));
     const default_value = @select(u8, textMask, text_default, number_default);
     
-    // this allows us to |= the internal representation with reset_mask to make it ready to be added to again
-    const reset_mask = @select(u8, textMask, @as(VectorType, @splat(0xFF)), @as(VectorType, @splat(0xF0)));
 
     return struct {
         const Self = @This();
@@ -162,6 +161,10 @@ fn GoldenSegment(comptime num_len: comptime_int) type {
             self.data.vector = default_value;
         }
 
+        fn splat(comptime n: comptime_int) VectorType {
+            return @as(VectorType, @splat(n));
+        }
+
         fn to_str(self: Self) VectorType {
             const safe_version = true;
             var reformed_numbers: VectorType = undefined;
@@ -169,21 +172,21 @@ fn GoldenSegment(comptime num_len: comptime_int) type {
                 reformed_numbers = (
                     (
                      // isolate lower 4 bits and subtract
-                     (@as(VectorType, @splat(0x0F)) & self.data.vector) - @as(VectorType, @splat(7))
-                     & @as(VectorType, @splat(0x0F)) // re-isolate to be safe
+                     (splat(0x0F) & self.data.vector) - splat(6)
+                     & splat(0x0F) // re-isolate to be safe
                     )
                     // upper 4 bits
-                    | @as(VectorType, @splat(0x30))
+                    | splat(0x30)
                 );
             } else {
                 // unsafe because i'm not confident it works but its (prolly) faster
                 reformed_numbers = (
-                    // remove 7 this is a safe subtraction since we add 
+                    // remove 6 this is a safe subtraction since we add 
                     //   seven to the base of any wont affect to the least four
                     //   significant bits other than subtraction
-                    (self.data.vector - @as(VectorType, @splat(7)))
+                    (self.data.vector - splat(6))
                     // forcibly set the upper bits
-                    | @as(VectorType, @splat(0x30))
+                    | splat(0x30)
                 );
             }
             // mix in words
@@ -195,9 +198,17 @@ fn GoldenSegment(comptime num_len: comptime_int) type {
         fn add(self: *Self, adding: u64) void {
 
             // add to the number 
-            self.data.number += @intCast(adding);
+            self.data.number = @byteSwap(@byteSwap(self.data.number) + @as(NumberType, @intCast(adding)));
+
             // restore rules so this stuff can be used again
-            self.data.vector |= reset_mask;
+            // this allows us to |= the internal representation with reset_mask to make it ready to be added to again
+            const less_than_seven: VectorBoolType = self.data.vector <= splat(6);
+            const seven_corrected = self.data.vector + @select(u8, less_than_seven, splat(6), splat(0));
+            self.data.vector = @select(u8, 
+                textMask, 
+                splat(0xFF), 
+                seven_corrected | splat(0x30)
+            );
         }
 
         fn verify_internal_representation(self: Self) void {
@@ -216,28 +227,42 @@ fn GoldenSegment(comptime num_len: comptime_int) type {
 
 
 pub fn main() !void {
-    const T = GoldenSegment(3);
+    const T = GoldenSegment(5);
     var x = try T.init(std.heap.page_allocator);
     x.initial();
     var asdf: [T.len_bytes]u8 = x.to_str();
-    dprint("{s}\n", .{asdf});
     asdf = x.to_str();
     dprint("{s}\n", .{asdf});
-    for (0..10) |_| {
-        x.add(1);
+    for (0..10000) |_| {
         asdf = x.to_str();
-        dprint("{s}\n", .{asdf});
     }
+    dprint("{s}\n", .{asdf});
+
 
 }
 
 
 
-/// the current problem and how to fix it 
-/// currently realized a problem with how this is done
-/// right now we are adding to the whole block like it is one thing.
-/// this is close to but not correct
-/// however, i think this is saveable
-/// first start using the newlines and other text as buffers
-/// then add to the first byte of a number but not the whole thing
-/// this can be done comptime at the begginning
+// the current problem and how to fix it 
+// currently realized a problem with how this is done
+// right now we are adding to the whole block like it is one thing.
+// this is close to but not correct
+// however, i think this is saveable
+// first start using the newlines and other text as buffers
+// then add to the first byte of a number but not the whole thing
+// this can be done comptime at the begginning
+//
+//
+//
+//
+// problem endianness when adding:
+// 
+//
+// u4 version:
+// 1111 
+//
+//
+//
+//
+//
+//
