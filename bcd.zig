@@ -47,6 +47,19 @@ const assert = std.debug.assert;
 
 
 
+// TODOs long term
+//
+// @byteSwap may be slower than @shuffle
+//
+
+fn comptime_powi(x: comptime_int, y: comptime_int) comptime_int {
+    var result = 1;
+    for (0..y) |_| {
+        result *= x;
+    }
+    return result;
+}
+
 
 fn createInt(bits: comptime_int) type {
     return @Type(
@@ -67,7 +80,7 @@ fn StrInt(comptime _len: comptime_int) type {
 
         const IntType = createInt(length*8);
         const StrType = @Vector(length, u8);
-        const ArrType = u8[length];
+        const ArrType = [length]u8;
 
         const UnionType = packed union {
             str: StrType,
@@ -77,6 +90,7 @@ fn StrInt(comptime _len: comptime_int) type {
         number: UnionType,
         const ZERO_VALUE: u8 = 0xF6;
         const MIN_INTERNAL: u8 = ZERO_VALUE & 0x0F;
+        const endianness = builtin.target.cpu.arch.endian();
 
 
         fn init() Self {
@@ -128,8 +142,7 @@ fn StrInt(comptime _len: comptime_int) type {
         }
 
         fn to_str(self: *Self, out: *ArrType) void {
-            const endianness = builtin.target.cpu.arch.endian();
-            comptime if (endianness == .little) {
+            if (endianness == .little) {
                 self.number.int = @byteSwap(self.number.int);
             }
 
@@ -140,7 +153,7 @@ fn StrInt(comptime _len: comptime_int) type {
                 | splat(0x30) 
             );
 
-            comptime if (endianness == .little) {
+            if (endianness == .little) {
                 self.number.int = @byteSwap(self.number.int);
             }
         }
@@ -164,54 +177,84 @@ const StandardFizzBuzz = [_]FizzBuzzToken{
 };
 
 
+const FizzBuzzConfig = struct {
+    number_len: usize,
+    fizz: []const u8,
+    buzz: []const u8,
+    fizzbuzz: []const u8,
+    seperator: []const u8,
+};
 
+
+fn buildSegmentTemplate(Sequence: []const FizzBuzzToken, conf: FizzBuzzConfig) []u8 {
+    var result: []u8 = "";
+    const zero_arr: []u8 = &.{0x00};
+    inline for (Sequence) |Token| {
+        result = result ++ switch (Token) {
+            .Number => zero_arr**conf.number_len,
+            .Fizz => conf.fizz,
+            .Buzz => conf.buzz,
+            .FizzBuzz => conf.fizzbuzz,
+        };
+        result = result ++ conf.seperator;
+    }
+    return result;
+}
+    
 
 
 /// a FizzBuzzer is in charge of printing 
 fn FizzBuzzer(
-    comptime number_length: comptime_int,
+    comptime _number_len: comptime_int,
     ) type {
 
     // TODO this usize will be a problem
     
-    const Sequence: []FizzBuzzToken = StandardFizzBuzz;
-    const Fizz: u8[] = "Fizz";
-    const Buzz: u8[] = "Buzz";
-    const FizzBuzz: u8[] = "FizzBuzz";
-    const Seperator: u8[] = "|"; // should be newline
-    
+    const Sequence: []const FizzBuzzToken = &StandardFizzBuzz;
+    const conf = FizzBuzzConfig{
+        .number_len = _number_len,
+        .fizz = "Fizz",
+        .buzz = "Buzz",
+        .fizzbuzz = "FizzBuzz",
+        .seperator = "|", // should be newline
+    };
 
-
-    /// currently comptime only
-    fn buildSegmentTemplate(FizzBuzzSequence: []FizzBuzzToken) []u8 {
-        var result: u8[] = "";
-        const zero_arr: u8[] = {0x00};
-        inline for (Sequence) |Token| {
-            result = result ++ switch (Token) {
-                .Number => zero_arr**number_length,
-                .Fizz => Fizz,
-                .Buzz => Buzz,
-                .FizzBuzz => FizzBuzz,
-            };
-            result = result ++ Seperator
-        }
-        return result;
-    }
-    
-    const starting_number = try std.math.powi(comptime_int, 10, number_length-1);
+    const starting_number = comptime_powi(10, conf.number_len-1);
+    // currently comptime only
     const segment_start_pos = (starting_number - 1) % Sequence.len;
     // 9 since we are in base 10
     const segment_count = (9*starting_number)/Sequence.len;
-    /// the remainder segment is the very last one which (may) not be full length
+
+    // the remainder segment is the very last one which (may) not be full length
     const remainder_segment_length = (9*starting_number) % Sequence.len;
 
-    const template = buildSegmentTemplate(
-        Sequence[segment_start_pos..Sequence.len] ++ Sequence[0..segment_start_pos]
+    const segment_template = buildSegmentTemplate(
+        Sequence[segment_start_pos..Sequence.len] ++ Sequence[0..segment_start_pos],
+        conf
     );
+
 //    const remainder_template = buildSegmentTemplate(
 //        Sequence[segment_start_pos..segment_start_pos+remainder_segment_length]
 //    );
+//
+    _ = remainder_segment_length;
+    _ = segment_count;
 
+
+    return struct{
+        const Self = @This();
+
+        allocator: std.mem.Allocator,
+        number: StrInt(conf.number_len),
+
+        fn init(allocator: std.mem.Allocator) Self {
+            dprint("{d}\n", .{segment_template});
+            return .{
+                .allocator = allocator,
+                .number = StrInt(conf.number_len).init()
+            };
+        }
+    };
 }
 
 
@@ -226,9 +269,16 @@ pub fn main() !void {
     n.zero();
     n.invariant();
     var vec: T.ArrType = undefined;
-    for (0..99999) |_| {
+    for (0..99) |_| {
         n.to_str(&vec);
         try stdout.print("{s}\n", .{vec});
         n.add(1);
     }
+
+    assert(1 == comptime_powi(10, 0));
+    assert(10 == comptime_powi(10, 1));
+    assert(100 == comptime_powi(10, 2));
+    const fb = FizzBuzzer(2).init(std.heap_page_allocator);
+    _ = fb;
+
 }
