@@ -51,6 +51,7 @@ const assert = std.debug.assert;
 //
 // @byteSwap may be slower than @shuffle
 //
+// use std.os.linux.syscalls.X64.vmsplice
 
 fn comptime_powi(x: comptime_int, y: comptime_int) comptime_int {
     var result = 1;
@@ -112,6 +113,16 @@ fn StrInt(comptime _len: comptime_int) type {
         fn zero(self: *Self) void {
             self.number.str = splat(ZERO_VALUE);
         }
+        
+        /// sets itself to the smallest number utilizing all its digits
+        fn smallest_full_len(self: *Self) void {
+            self.zero();
+
+            var x: ArrType = undefined;
+            @memset(&x, 0);
+            x[x.len-1] = 1;
+            self.number.str += @as(StrType, x);
+        }
 
         fn debug(self: Self) void {
             for (0..length) |i| {
@@ -126,7 +137,7 @@ fn StrInt(comptime _len: comptime_int) type {
             );
         }
 
-        fn add(self: *Self, x: comptime_int) void {
+        fn add(self: *Self, x: u8) void {
             // add
             self.number.int +%= x;
 
@@ -186,9 +197,9 @@ const FizzBuzzConfig = struct {
 };
 
 
-fn buildSegmentTemplate(Sequence: []const FizzBuzzToken, conf: FizzBuzzConfig) []u8 {
-    var result: []u8 = "";
-    const zero_arr: []u8 = &.{0x00};
+fn buildSegmentTemplate(Sequence: []const FizzBuzzToken, conf: FizzBuzzConfig) []const u8 {
+    var result: []const u8 = "";
+    const zero_arr: []const u8 = &.{0x00};
     inline for (Sequence) |Token| {
         result = result ++ switch (Token) {
             .Number => zero_arr**conf.number_len,
@@ -228,17 +239,13 @@ fn FizzBuzzer(
     // the remainder segment is the very last one which (may) not be full length
     const remainder_segment_length = (9*starting_number) % Sequence.len;
 
-    const segment_template = buildSegmentTemplate(
-        Sequence[segment_start_pos..Sequence.len] ++ Sequence[0..segment_start_pos],
-        conf
-    );
+    const reordered_sequence = Sequence[segment_start_pos..Sequence.len] ++ Sequence[0..segment_start_pos];
 
-//    const remainder_template = buildSegmentTemplate(
-//        Sequence[segment_start_pos..segment_start_pos+remainder_segment_length]
-//    );
-//
-    _ = remainder_segment_length;
-    _ = segment_count;
+    const segment_template = buildSegmentTemplate(reordered_sequence, conf);
+
+    const remainder_template = buildSegmentTemplate(
+        reordered_sequence[0..remainder_segment_length], conf
+    );
 
 
     return struct{
@@ -248,11 +255,64 @@ fn FizzBuzzer(
         number: StrInt(conf.number_len),
 
         fn init(allocator: std.mem.Allocator) Self {
-            dprint("{d}\n", .{segment_template});
+            dprint("{s}\n", .{segment_template});
             return .{
                 .allocator = allocator,
                 .number = StrInt(conf.number_len).init()
             };
+        }
+
+        fn start(self: *Self) !void {
+            self.number.smallest_full_len();
+            const mem = try self.allocator.alloc(u8, 
+                segment_template.len*segment_count + remainder_template.len
+            );
+            var wi: usize = 0;
+
+            for (0..segment_count) |_| {
+                wi += self.write_segment(mem[wi..]);
+            }
+            
+            dprint("{s}\n", .{mem});
+        }
+
+        fn write_segment(self: *Self, memory: []u8) usize {
+            var wi: usize  = 0;
+            var last_i: usize = 0;
+            inline for (reordered_sequence, 0..) |token, i| {
+                wi += switch (token) {
+                    .Fizz => blk: {
+                        @memcpy(memory[wi..wi+conf.fizz.len], conf.fizz);
+                        break :blk conf.fizz.len;
+                    },
+                    .Buzz => blk: {
+                        @memcpy(memory[wi..wi+conf.buzz.len], conf.buzz);
+                        break :blk conf.buzz.len;
+                    },
+                    .FizzBuzz => blk: {
+                        @memcpy(memory[wi..wi+conf.fizzbuzz.len], conf.fizzbuzz);
+                        break :blk conf.fizzbuzz.len;
+                    },
+                    .Number => blk: {
+
+                        // ugly syntax from here
+                        // https://ziggit.dev/t/coercing-a-slice-to-an-array/2416/5
+                        self.number.to_str(
+                            &(memory[wi..][0..conf.number_len].*));
+                        self.number.add(@intCast(i - last_i));
+                        last_i = i;
+                        break: blk conf.number_len;
+                    },
+                };
+                @memcpy(memory[wi..wi+conf.seperator.len], conf.seperator);
+                wi += conf.seperator.len;
+            }
+            return wi;
+        }
+
+        fn write_remainder(self: *Self, memory: []u8) usize {
+            _ = self;
+            _ = memory;
         }
     };
 }
@@ -278,7 +338,7 @@ pub fn main() !void {
     assert(1 == comptime_powi(10, 0));
     assert(10 == comptime_powi(10, 1));
     assert(100 == comptime_powi(10, 2));
-    const fb = FizzBuzzer(2).init(std.heap_page_allocator);
-    _ = fb;
+    var fb = FizzBuzzer(2).init(std.heap.page_allocator);
+    try fb.start();
 
 }
