@@ -47,7 +47,6 @@ const assert = std.debug.assert;
 //
 // @byteSwap may be slower than @shuffle
 //
-// use std.os.linux.syscalls.X64.vmsplice
 
 
 const c = @cImport({
@@ -97,6 +96,8 @@ fn StrInt(comptime _len: comptime_int) type {
             int: IntType,
         };
 
+        const byteSwap = if (true) shuffleByteSwap else wrappedByteSwap;
+
         number: UnionType,
         const ZERO_VALUE: u8 = 0xF6;
         const MIN_INTERNAL: u8 = ZERO_VALUE & 0x0F;
@@ -113,6 +114,10 @@ fn StrInt(comptime _len: comptime_int) type {
 
         fn splat(x: u8) StrType {
             return @splat(x);
+        }
+
+        fn wrappedByteSwap(s: StrType) StrType {
+            return @byteSwap(s);
         }
 
         fn shuffleByteSwap(s: StrType) StrType {
@@ -139,10 +144,24 @@ fn StrInt(comptime _len: comptime_int) type {
 
             var x: ArrType = undefined;
             @memset(&x, 0);
-            if (length != 1) {
-                x[x.len - 1] = 1;
-            }
+            x[x.len - 1] = 1;
             self.number.str += @as(StrType, x);
+        }
+
+        fn assign(self: *Self, comptime x: comptime_int) void {
+            self.zero();
+            // this section sucks
+            const vec: StrType = comptime blk: {
+                var arr_c: []const u8 = std.fmt.comptimePrint("{d}", .{x});
+                const factor = length - arr_c.len;
+                if (factor < 0) {
+                    @compileError(std.fmt.comptimePrint("Cannot assign constant {d} to StrInt of width {d}", ));
+                }
+                arr_c = "0"**factor ++ arr_c;
+                break :blk arr_c[0..length].*;
+            };
+            assert(@reduce(.And, splat('0') <= vec) and @reduce(.And, vec <= splat('9')));
+            self.number.str += byteSwap(vec) - splat('0');
         }
 
         fn debug(self: Self) void {
@@ -171,9 +190,10 @@ fn StrInt(comptime _len: comptime_int) type {
             self.invariant();
         }
 
+
         fn to_str(self: *Self, out: *ArrType) void {
             if (comptime endianness == .little) {
-                self.number.str = shuffleByteSwap(self.number.str);
+                self.number.str = byteSwap(self.number.str);
             }
 
             out.* = (
@@ -183,7 +203,7 @@ fn StrInt(comptime _len: comptime_int) type {
                 | splat(0x30));
 
             if (comptime endianness == .little) {
-                self.number.str = shuffleByteSwap(self.number.str);
+                self.number.str = byteSwap(self.number.str);
             }
         }
     };
@@ -221,6 +241,8 @@ const Template = struct {
 
     template: []const u8,
     numbers: []const Number,
+
+
 };
 
 fn buildSegmentTemplate(Sequence: []const FizzBuzzToken, conf: FizzBuzzConfig) Template {
@@ -231,7 +253,13 @@ fn buildSegmentTemplate(Sequence: []const FizzBuzzToken, conf: FizzBuzzConfig) T
     result.template = "";
     result.numbers = &.{};
 
-    var last_i: comptime_int = -1;
+    var last_i: comptime_int = blk: {
+        var i = 0;
+        while (@as(comptime_int, Sequence.len) + i - 1 >= 0 and Sequence[@as(comptime_int, Sequence.len) + i - 1] != .Number) {
+            i -= 1;
+        }
+        break :blk i-1;
+    };
     inline for (Sequence, 0..) |Token, i| {
         const to_add = switch (Token) {
             .Number => blk: {
@@ -289,15 +317,28 @@ fn FizzBuzzer(comptime _number_len: comptime_int) type {
         }
 
         fn start(self: *Self) !void {
-            self.number.smallest_full_len();
             const BLK_SIZE = 65536;
+            //const BLK_SIZE = 1 << 20;
             var mem = try self.allocator.alloc(u8, 2 * BLK_SIZE);
             var wi: usize = 0;
 
-//            const stdout = std.io.getStdOut();
+            // to account for the fact that the writer wants to add on its very first number,
+            // we must subtract by how many previous sequential tokens were not numbers
+            const init_value = comptime blk: {
+                var i: comptime_int = 0;
+                while (segment_sequence[@as(comptime_int, segment_sequence.len) - 1 - i] != .Number) : (i += 1) {}
+                
+                break :blk comptime_powi(10, conf.number_len-1) - i - 1;
+            };
+//            _ = init_value;
+            if (conf.number_len > 1) {
+                self.number.assign(init_value);
+            } else {
+                self.number.assign(0);
+            }
 
             for (0..segment_count) |_| {
-                wi += self.write_segment_v2(segment_sequence, mem[wi..]);
+                wi += self.write_segment_v2(segment_sequence, false, mem[wi..]);
 
                 if (wi >= BLK_SIZE) {
                     _ = vmsplice(std.posix.STDOUT_FILENO, mem[0..BLK_SIZE]);
@@ -306,7 +347,7 @@ fn FizzBuzzer(comptime _number_len: comptime_int) type {
                     wi = unwritten;
                 }
             }
-            wi += self.write_segment_v2(remainder_sequence, mem[wi..]);
+            wi += self.write_segment_v2(remainder_sequence, false, mem[wi..]);
             _ = vmsplice(std.posix.STDOUT_FILENO, mem[0..wi]);
         }
 
@@ -337,17 +378,17 @@ fn FizzBuzzer(comptime _number_len: comptime_int) type {
                 @memcpy(memory[wi .. wi + conf.seperator.len], conf.seperator);
                 wi += conf.seperator.len;
 
-                self.number.add(1);
             }
             return wi;
         }
 
-        fn write_segment_v2(self: *Self, comptime sequence: []const FizzBuzzToken, memory: []u8) usize {
+        fn write_segment_v2(self: *Self, comptime sequence: []const FizzBuzzToken, comptime dont_add_first: bool, memory: []u8) usize {
 
             const template = comptime buildSegmentTemplate(sequence, conf);
             @memcpy(memory[0..template.template.len], template.template);
-
-            inline for (template.numbers) |num| {
+           
+            inline for (template.numbers, 0..) |num, i| {
+                if (comptime !(dont_add_first and i == 0)) self.number.add(num.increment);
                 self.number.add(num.increment);
                 self.number.to_str(memory[num.index_in_template..num.index_in_template+conf.number_len]);
             }
@@ -358,7 +399,7 @@ fn FizzBuzzer(comptime _number_len: comptime_int) type {
 }
 
 pub fn main() !void {
-    inline for (1..20) |i| {
+    inline for (0..20) |i| {
         var fb = FizzBuzzer(i).init(std.heap.page_allocator);
         try fb.start();
     }
