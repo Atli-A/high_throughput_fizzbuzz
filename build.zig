@@ -8,7 +8,7 @@ pub fn build(b: *std.Build) void {
         .optimize = b.standardOptimizeOption(.{}),
     });
     
-//    exe.linkLibC();
+    exe.linkLibC();
 
     b.installArtifact(exe);
 }

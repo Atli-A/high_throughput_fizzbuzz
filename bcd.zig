@@ -187,7 +187,7 @@ const Template = struct {
     };
 
     template: []const u8,
-    numbers: []Number,
+    numbers: []const Number,
 };
 
 fn buildSegmentTemplate(Sequence: []const FizzBuzzToken, conf: FizzBuzzConfig) Template {
@@ -202,9 +202,11 @@ fn buildSegmentTemplate(Sequence: []const FizzBuzzToken, conf: FizzBuzzConfig) T
     inline for (Sequence, 0..) |Token, i| {
         const to_add = switch (Token) {
             .Number => blk: {
-                //                result.numbers ++ .{
-                //                Template.Number{.increment: i - last_i, .index_in_template: result.template.len}
-                //                };
+                const to_add: Template.Number = .{
+                    .increment = i - last_i, 
+                    .index_in_template = result.template.len,
+                };
+                result.numbers = result.numbers ++ &[1]Template.Number{to_add};
                 last_i = i;
                 break :blk zero_arr ** conf.number_len;
             },
@@ -264,7 +266,7 @@ fn FizzBuzzer(comptime _number_len: comptime_int) type {
             for (0..segment_count) |_| {
                 wi += self.write_segment_v2(segment_sequence, mem[wi..]);
 
-                if (wi > BLK_SIZE) {
+                if (wi >= BLK_SIZE) {
                     try stdout.writeAll(mem[0..BLK_SIZE]);
                     const unwritten = wi - BLK_SIZE;
                     @memcpy(mem[0..unwritten], mem[BLK_SIZE..wi]);
@@ -314,7 +316,7 @@ fn FizzBuzzer(comptime _number_len: comptime_int) type {
 
             inline for (template.numbers) |num| {
                 self.number.add(num.increment);
-                self.number.to_str(sequence[num.index_in_template]);
+                self.number.to_str(memory[num.index_in_template..num.index_in_template+conf.number_len]);
             }
             return template.template.len;
         }
