@@ -48,8 +48,26 @@ const assert = std.debug.assert;
 // @byteSwap may be slower than @shuffle
 //
 // use std.os.linux.syscalls.X64.vmsplice
-//
-//
+
+
+const c = @cImport({
+    if (builtin.mode == .ReleaseFast) {
+        @cDefine("NDEBUG", {}); // needed?
+    }
+    @cDefine("_GNU_SOURCE", {});
+    @cInclude("fcntl.h");
+    @cInclude("sys/uio.h");
+});
+
+
+fn vmsplice(fileno: c_int, memory: []u8) c_long {
+    const iov = c.iovec{
+        .iov_base = memory.ptr,
+        .iov_len = memory.len,
+    };
+    return c.vmsplice(fileno, &iov, 1, c.SPLICE_F_NONBLOCK);
+}
+
 fn comptime_powi(x: comptime_int, y: comptime_int) comptime_int {
     var result = 1;
     for (0..y) |_| {
@@ -97,6 +115,19 @@ fn StrInt(comptime _len: comptime_int) type {
             return @splat(x);
         }
 
+        fn shuffleByteSwap(s: StrType) StrType {
+            comptime var mask_arr: [length]i32 = undefined;
+            comptime {
+                for (0..mask_arr.len) |i| {
+                    mask_arr[i] = length - 1 - i;
+                }
+            }
+            const mask: @Vector(length, i32) = mask_arr;
+            const unused: StrType = undefined;
+            
+            return @shuffle(u8, s, unused, mask);
+        }
+
         /// Zeroes the entire UnionType
         fn zero(self: *Self) void {
             self.number.str = splat(ZERO_VALUE);
@@ -108,7 +139,9 @@ fn StrInt(comptime _len: comptime_int) type {
 
             var x: ArrType = undefined;
             @memset(&x, 0);
-            x[x.len - 1] = 1;
+            if (length != 1) {
+                x[x.len - 1] = 1;
+            }
             self.number.str += @as(StrType, x);
         }
 
@@ -140,7 +173,7 @@ fn StrInt(comptime _len: comptime_int) type {
 
         fn to_str(self: *Self, out: *ArrType) void {
             if (comptime endianness == .little) {
-                self.number.int = @byteSwap(self.number.int);
+                self.number.str = shuffleByteSwap(self.number.str);
             }
 
             out.* = (
@@ -150,7 +183,7 @@ fn StrInt(comptime _len: comptime_int) type {
                 | splat(0x30));
 
             if (comptime endianness == .little) {
-                self.number.int = @byteSwap(self.number.int);
+                self.number.str = shuffleByteSwap(self.number.str);
             }
         }
     };
@@ -198,12 +231,12 @@ fn buildSegmentTemplate(Sequence: []const FizzBuzzToken, conf: FizzBuzzConfig) T
     result.template = "";
     result.numbers = &.{};
 
-    var last_i = 0;
+    var last_i: comptime_int = -1;
     inline for (Sequence, 0..) |Token, i| {
         const to_add = switch (Token) {
             .Number => blk: {
                 const to_add: Template.Number = .{
-                    .increment = i - last_i, 
+                    .increment = @intCast(@as(comptime_int, i) - last_i), 
                     .index_in_template = result.template.len,
                 };
                 result.numbers = result.numbers ++ &[1]Template.Number{to_add};
@@ -261,20 +294,20 @@ fn FizzBuzzer(comptime _number_len: comptime_int) type {
             var mem = try self.allocator.alloc(u8, 2 * BLK_SIZE);
             var wi: usize = 0;
 
-            const stdout = std.io.getStdOut();
+//            const stdout = std.io.getStdOut();
 
             for (0..segment_count) |_| {
                 wi += self.write_segment_v2(segment_sequence, mem[wi..]);
 
                 if (wi >= BLK_SIZE) {
-                    try stdout.writeAll(mem[0..BLK_SIZE]);
+                    _ = vmsplice(std.posix.STDOUT_FILENO, mem[0..BLK_SIZE]);
                     const unwritten = wi - BLK_SIZE;
                     @memcpy(mem[0..unwritten], mem[BLK_SIZE..wi]);
                     wi = unwritten;
                 }
             }
             wi += self.write_segment_v2(remainder_sequence, mem[wi..]);
-            try stdout.writeAll(mem[0..wi]);
+            _ = vmsplice(std.posix.STDOUT_FILENO, mem[0..wi]);
         }
 
         fn write_segment(self: *Self, comptime sequence: []const FizzBuzzToken, memory: []u8) usize {
@@ -329,4 +362,5 @@ pub fn main() !void {
         var fb = FizzBuzzer(i).init(std.heap.page_allocator);
         try fb.start();
     }
+
 }
