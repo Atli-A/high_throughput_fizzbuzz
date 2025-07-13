@@ -5,7 +5,9 @@ pub fn build(b: *std.Build) void {
         .name = "main",
         .root_source_file = b.path("bcd.zig"),
         .target = b.graph.host,
+        .optimize = b.standardOptimizeOption(.{}),
     });
+
 
     b.installArtifact(exe);
 }
