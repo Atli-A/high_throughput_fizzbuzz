@@ -7,7 +7,8 @@ pub fn build(b: *std.Build) void {
         .target = b.graph.host,
         .optimize = b.standardOptimizeOption(.{}),
     });
-
+    
+//    exe.linkLibC();
 
     b.installArtifact(exe);
 }

@@ -6,19 +6,18 @@ const assert = std.debug.assert;
 
 /// if implementation fails
 /// https://stackoverflow.com/questions/55802309/is-there-a-256-bit-integer-type-in-c
-
 /// Golden Sequence:
 ///
-/// Consider one fizzbuzz segment which matches the following 
+/// Consider one fizzbuzz segment which matches the following
 /// where every number is the same width.
 /// Example (' ' = '\n', '#' = number, 'F' = 'Fizz', B = 'Buzz', FB = 'FizzBuzz'):
 /// # # F # B F # # F B # F # # FB
 ///
-/// Since all the numbers are of known width the length of this string is 
+/// Since all the numbers are of known width the length of this string is
 /// comptime known when len(#) is comptime known.
 ///
 /// Additionally, we treat the whole string as a large number
-/// 
+///
 /// since the ascii digits 0 to 9 are in binary as ?011 XXXX
 /// so '0' is naturally stored as 0011 0000
 /// however we will store it as 1111 0111. (adding 7 to the original)
@@ -27,32 +26,30 @@ const assert = std.debug.assert;
 ///
 /// For example the segment matching the string "11 Fizz 13 14 FizzBuzz" becomes
 /// parantheses group words
-/// 
-/// '11 '   1111_1000 1111_1000 1111_1111 
-/// 'Fizz ' 1111_1111 1111_1111 1111_1111 1111_1111 1111_1111  
-/// '13 '   1111_1000 1111_1010 1111_1111 
-/// '14 '   1111_1000 1111_1011 1111_1111 
-/// 'FizzBuzz ' 1111_1111 1111_1111 1111_1111 1111_1111 1111_1111 1111_1111 1111_1111 1111_1111 1111_1111 
+///
+/// '11 '   1111_1000 1111_1000 1111_1111
+/// 'Fizz ' 1111_1111 1111_1111 1111_1111 1111_1111 1111_1111
+/// '13 '   1111_1000 1111_1010 1111_1111
+/// '14 '   1111_1000 1111_1011 1111_1111
+/// 'FizzBuzz ' 1111_1111 1111_1111 1111_1111 1111_1111 1111_1111 1111_1111 1111_1111 1111_1111 1111_1111
 ///
 ///
-/// to convert these stored numbers to their string version we must perform 
-/// several operations 
+/// to convert these stored numbers to their string version we must perform
+/// several operations
 ///
 /// what we do for letters does not matter
 /// but for each byte we do the following
 /// 1111_XXXX -> 0011_(XXXX - 7)
-/// 
+///
 /// 1 = 1111_1000 => 0011_0001 = '1'
-
-
-
 
 // TODOs long term
 //
 // @byteSwap may be slower than @shuffle
 //
 // use std.os.linux.syscalls.X64.vmsplice
-
+//
+//
 fn comptime_powi(x: comptime_int, y: comptime_int) comptime_int {
     var result = 1;
     for (0..y) |_| {
@@ -61,25 +58,19 @@ fn comptime_powi(x: comptime_int, y: comptime_int) comptime_int {
     return result;
 }
 
-
 fn createInt(bits: comptime_int) type {
-    return @Type(
-        std.builtin.Type{
-            .@"int"=std.builtin.Type.Int{
-                .signedness=std.builtin.Signedness.unsigned,
-                .bits=bits,
-            }
-        }
-    );
+    return @Type(std.builtin.Type{ .int = std.builtin.Type.Int{
+        .signedness = std.builtin.Signedness.unsigned,
+        .bits = bits,
+    } });
 }
-
 
 fn StrInt(comptime _len: comptime_int) type {
     return struct {
         const Self = @This();
         const length = _len;
 
-        const IntType = createInt(length*8);
+        const IntType = createInt(length * 8);
         const StrType = @Vector(length, u8);
         const ArrType = [length]u8;
 
@@ -93,15 +84,12 @@ fn StrInt(comptime _len: comptime_int) type {
         const MIN_INTERNAL: u8 = ZERO_VALUE & 0x0F;
         const endianness = builtin.target.cpu.arch.endian();
 
-
         fn init() Self {
             if (@bitSizeOf(IntType) != @bitSizeOf(UnionType) or @bitSizeOf(StrType) != @bitSizeOf(UnionType)) {
-                @compileError(
-                    std.fmt.comptimePrint("mismatch sizes", .{})
-                );
-           }
+                @compileError(std.fmt.comptimePrint("mismatch sizes", .{}));
+            }
             return .{
-                .number = UnionType{.int = 0},
+                .number = UnionType{ .int = 0 },
             };
         }
 
@@ -109,18 +97,18 @@ fn StrInt(comptime _len: comptime_int) type {
             return @splat(x);
         }
 
-        /// Zeroes the entire UnionType 
+        /// Zeroes the entire UnionType
         fn zero(self: *Self) void {
             self.number.str = splat(ZERO_VALUE);
         }
-        
+
         /// sets itself to the smallest number utilizing all its digits
         fn smallest_full_len(self: *Self) void {
             self.zero();
 
             var x: ArrType = undefined;
             @memset(&x, 0);
-            x[x.len-1] = 1;
+            x[x.len - 1] = 1;
             self.number.str += @as(StrType, x);
         }
 
@@ -132,9 +120,7 @@ fn StrInt(comptime _len: comptime_int) type {
         }
 
         fn invariant(self: Self) void {
-            assert(
-                @reduce(.And, ((self.number.str & splat(0x0F)) >= splat(MIN_INTERNAL)))
-            );
+            assert(@reduce(.And, ((self.number.str & splat(0x0F)) >= splat(MIN_INTERNAL))));
         }
 
         fn add(self: *Self, x: u8) void {
@@ -160,9 +146,8 @@ fn StrInt(comptime _len: comptime_int) type {
             out.* = (
                 // the lower 4 bits are just the number itself not its internal representation
                 (self.number.str & splat(0x0F)) - splat(MIN_INTERNAL)
-                // upper bits are just 0x30
-                | splat(0x30) 
-            );
+                    // upper bits are just 0x30
+                | splat(0x30));
 
             if (comptime endianness == .little) {
                 self.number.int = @byteSwap(self.number.int);
@@ -173,20 +158,19 @@ fn StrInt(comptime _len: comptime_int) type {
 
 // fizzbuzz tokens are seperated by a seperator
 const FizzBuzzToken = enum {
-    Number, 
-    Fizz, 
-    Buzz, 
-    FizzBuzz, 
+    Number,
+    Fizz,
+    Buzz,
+    FizzBuzz,
 };
 
 const StandardFizzBuzz = [_]FizzBuzzToken{
-    FizzBuzzToken.Number, FizzBuzzToken.Number, FizzBuzzToken.Fizz, 
-    FizzBuzzToken.Number, FizzBuzzToken.Buzz, FizzBuzzToken.Fizz, 
-    FizzBuzzToken.Number, FizzBuzzToken.Number, FizzBuzzToken.Fizz, 
-    FizzBuzzToken.Buzz, FizzBuzzToken.Number, FizzBuzzToken.Fizz, 
+    FizzBuzzToken.Number, FizzBuzzToken.Number, FizzBuzzToken.Fizz,
+    FizzBuzzToken.Number, FizzBuzzToken.Buzz,   FizzBuzzToken.Fizz,
+    FizzBuzzToken.Number, FizzBuzzToken.Number, FizzBuzzToken.Fizz,
+    FizzBuzzToken.Buzz,   FizzBuzzToken.Number, FizzBuzzToken.Fizz,
     FizzBuzzToken.Number, FizzBuzzToken.Number, FizzBuzzToken.FizzBuzz,
 };
-
 
 const FizzBuzzConfig = struct {
     number_len: usize,
@@ -197,50 +181,47 @@ const FizzBuzzConfig = struct {
 };
 
 const Template = struct {
-    const Number = struct{
+    const Number = struct {
         increment: u8, // the increment from the previous number (0) for the first
         index_in_template: usize,
     };
 
-
     template: []const u8,
-    numbers: []Number
+    numbers: []Number,
 };
 
 fn buildSegmentTemplate(Sequence: []const FizzBuzzToken, conf: FizzBuzzConfig) Template {
     const zero_arr: []const u8 = &.{0x00};
 
     var result: Template = undefined;
-    
+
     result.template = "";
     result.numbers = &.{};
-    
+
     var last_i = 0;
     inline for (Sequence, 0..) |Token, i| {
         const to_add = switch (Token) {
             .Number => blk: {
-                result.numbers ++ .{
-                Template.Number{.increment: i - last_i, .index_in_template: result.template.len}
-                };
+                //                result.numbers ++ .{
+                //                Template.Number{.increment: i - last_i, .index_in_template: result.template.len}
+                //                };
                 last_i = i;
-                break :blk zero_arr**conf.number_len;
+                break :blk zero_arr ** conf.number_len;
             },
             .Fizz => conf.fizz,
             .Buzz => conf.buzz,
             .FizzBuzz => conf.fizzbuzz,
-        }
+        };
         result.template = result.template ++ to_add ++ conf.seperator;
     }
     return result;
 }
-    
 
-
-/// a FizzBuzzer is in charge of printing 
+/// a FizzBuzzer is in charge of printing
 fn FizzBuzzer(comptime _number_len: comptime_int) type {
 
     // TODO this usize will be a problem
-    
+
     const Sequence: []const FizzBuzzToken = &StandardFizzBuzz;
     const conf = FizzBuzzConfig{
         .number_len = _number_len,
@@ -250,47 +231,38 @@ fn FizzBuzzer(comptime _number_len: comptime_int) type {
         .seperator = "\n", // should be newline
     };
 
-    const starting_number = comptime_powi(10, conf.number_len-1);
+    const starting_number = comptime_powi(10, conf.number_len - 1);
     // currently comptime only
     const segment_start_pos = (starting_number - 1) % Sequence.len;
     // 9 since we are in base 10
-    const segment_count = (9*starting_number)/Sequence.len;
+    const segment_count = (9 * starting_number) / Sequence.len;
 
     // the remainder segment is the very last one which (may) not be full length
-    const remainder_segment_length = (9*starting_number) % Sequence.len;
+    const remainder_segment_length = (9 * starting_number) % Sequence.len;
 
     const segment_sequence = Sequence[segment_start_pos..Sequence.len] ++ Sequence[0..segment_start_pos];
-
-//    const segment_template = buildSegmentTemplate(segment_sequence, conf);
-
     const remainder_sequence = segment_sequence[0..remainder_segment_length];
-//    const remainder_template = buildSegmentTemplate(remainder_sequence, conf);
 
-
-    return struct{
+    return struct {
         const Self = @This();
 
         allocator: std.mem.Allocator,
         number: StrInt(conf.number_len),
 
         fn init(allocator: std.mem.Allocator) Self {
-            return .{
-                .allocator = allocator,
-                .number = StrInt(conf.number_len).init()
-            };
+            return .{ .allocator = allocator, .number = StrInt(conf.number_len).init() };
         }
 
         fn start(self: *Self) !void {
             self.number.smallest_full_len();
-            const BLK_SIZE = 1 << 16;
-            var mem = try self.allocator.alloc(u8, 2*BLK_SIZE);
+            const BLK_SIZE = 65536;
+            var mem = try self.allocator.alloc(u8, 2 * BLK_SIZE);
             var wi: usize = 0;
-
 
             const stdout = std.io.getStdOut();
 
             for (0..segment_count) |_| {
-                wi += self.write_segment(segment_sequence, mem[wi..]);
+                wi += self.write_segment_v2(segment_sequence, mem[wi..]);
 
                 if (wi > BLK_SIZE) {
                     try stdout.writeAll(mem[0..BLK_SIZE]);
@@ -299,52 +271,60 @@ fn FizzBuzzer(comptime _number_len: comptime_int) type {
                     wi = unwritten;
                 }
             }
-            wi += self.write_segment(remainder_sequence, mem[wi..]);
+            wi += self.write_segment_v2(remainder_sequence, mem[wi..]);
             try stdout.writeAll(mem[0..wi]);
-            
         }
 
         fn write_segment(self: *Self, comptime sequence: []const FizzBuzzToken, memory: []u8) usize {
-            var wi: usize  = 0;
+            var wi: usize = 0;
             inline for (sequence) |token| {
                 wi += switch (token) {
                     .Fizz => blk: {
-                        @memcpy(memory[wi..wi+conf.fizz.len], conf.fizz);
+                        @memcpy(memory[wi .. wi + conf.fizz.len], conf.fizz);
                         break :blk conf.fizz.len;
                     },
                     .Buzz => blk: {
-                        @memcpy(memory[wi..wi+conf.buzz.len], conf.buzz);
+                        @memcpy(memory[wi .. wi + conf.buzz.len], conf.buzz);
                         break :blk conf.buzz.len;
                     },
                     .FizzBuzz => blk: {
-                        @memcpy(memory[wi..wi+conf.fizzbuzz.len], conf.fizzbuzz);
+                        @memcpy(memory[wi .. wi + conf.fizzbuzz.len], conf.fizzbuzz);
                         break :blk conf.fizzbuzz.len;
                     },
                     .Number => blk: {
 
                         // ugly syntax from here
                         // https://ziggit.dev/t/coercing-a-slice-to-an-array/2416/5
-                        self.number.to_str(
-                            &(memory[wi..][0..conf.number_len].*));
-                        break: blk conf.number_len;
+                        self.number.to_str(&(memory[wi..][0..conf.number_len].*));
+                        break :blk conf.number_len;
                     },
                 };
-                @memcpy(memory[wi..wi+conf.seperator.len], conf.seperator);
+                @memcpy(memory[wi .. wi + conf.seperator.len], conf.seperator);
                 wi += conf.seperator.len;
-                        
+
                 self.number.add(1);
             }
             return wi;
         }
+
+        fn write_segment_v2(self: *Self, comptime sequence: []const FizzBuzzToken, memory: []u8) usize {
+
+            const template = comptime buildSegmentTemplate(sequence, conf);
+            @memcpy(memory[0..template.template.len], template.template);
+
+            inline for (template.numbers) |num| {
+                self.number.add(num.increment);
+                self.number.to_str(sequence[num.index_in_template]);
+            }
+            return template.template.len;
+        }
+
     };
 }
-
-
 
 pub fn main() !void {
     inline for (1..20) |i| {
         var fb = FizzBuzzer(i).init(std.heap.page_allocator);
         try fb.start();
     }
-
 }
