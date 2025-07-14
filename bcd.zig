@@ -51,7 +51,7 @@ fn StrInt(comptime _len: comptime_int) type {
             int: IntType,
         };
 
-        const byteSwap = if (true) shuffleByteSwap else wrappedByteSwap;
+        const byteSwap = if (false) shuffleByteSwap else wrappedByteSwap;
 
         number: UnionType,
         const ZERO_VALUE: u8 = 0xF6;
@@ -133,8 +133,6 @@ fn StrInt(comptime _len: comptime_int) type {
         fn add(self: *Self, x: u8) void {
             // add
             self.number.int +%= x;
-
-            // enforce internal representation
 
             // where we need to add 7
             const need_correction = (splat(0x0F) & self.number.str) < splat(MIN_INTERNAL);
@@ -268,7 +266,7 @@ fn FizzBuzzer(comptime _number_len: comptime_int) type {
 
         fn start(self: *Self) !void {
             const BLK_SIZE = 65536;
-            //const BLK_SIZE = 1 << 20;
+            //const BLK_SIZE = 1 << 18;
             var mem = try self.allocator.alloc(u8, 2 * BLK_SIZE);
             var wi: usize = 0;
 
@@ -278,7 +276,7 @@ fn FizzBuzzer(comptime _number_len: comptime_int) type {
             self.number.smallest_full_len();
 
             for (0..segment_count) |_| {
-                wi += self.write_segment_v2(segment_sequence, false, mem[wi..]);
+                wi += self.write_segment_v2(segment_sequence, mem[wi..]);
 
                 if (wi >= BLK_SIZE) {
                     _ = vmsplice(std.posix.STDOUT_FILENO, mem[0..BLK_SIZE]);
@@ -287,7 +285,7 @@ fn FizzBuzzer(comptime _number_len: comptime_int) type {
                     wi = unwritten;
                 }
             }
-            wi += self.write_segment_v2(remainder_sequence, false, mem[wi..]);
+            wi += self.write_segment_v2(remainder_sequence, mem[wi..]);
             _ = vmsplice(std.posix.STDOUT_FILENO, mem[0..wi]);
         }
 
@@ -322,15 +320,12 @@ fn FizzBuzzer(comptime _number_len: comptime_int) type {
             return wi;
         }
 
-        fn write_segment_v2(self: *Self, comptime sequence: []const FizzBuzzToken, comptime dont_add_first: bool, memory: []u8) usize {
+        fn write_segment_v2(self: *Self, comptime sequence: []const FizzBuzzToken, memory: []u8) usize {
 
             const template = comptime buildSegmentTemplate(sequence, conf);
             @memcpy(memory[0..template.template.len], template.template);
-            _ = dont_add_first;
            
-            inline for (template.numbers, 0..) |num, i| {
-                _ = i;
-                //if (comptime !(dont_add_first and i == 0)) 
+            inline for (template.numbers) |num| {
                 self.number.add(num.increment);
                 self.number.to_str(memory[num.index_in_template..num.index_in_template+conf.number_len]);
             }
@@ -342,7 +337,7 @@ fn FizzBuzzer(comptime _number_len: comptime_int) type {
 }
 
 pub fn main() !void {
-    inline for (1..3) |i| {
+    inline for (1..20) |i| {
         var fb = FizzBuzzer(i).init(std.heap.page_allocator);
         try fb.start();
     }
