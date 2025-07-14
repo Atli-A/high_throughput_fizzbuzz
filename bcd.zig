@@ -276,7 +276,7 @@ fn FizzBuzzer(comptime _number_len: comptime_int) type {
             self.number.smallest_full_len();
 
             for (0..segment_count) |_| {
-                wi += self.write_segment_v2(segment_sequence, mem[wi..]);
+                wi += self.write_segment(segment_sequence, mem[wi..]);
 
                 if (wi >= BLK_SIZE) {
                     _ = vmsplice(std.posix.STDOUT_FILENO, mem[0..BLK_SIZE]);
@@ -285,7 +285,7 @@ fn FizzBuzzer(comptime _number_len: comptime_int) type {
                     wi = unwritten;
                 }
             }
-            wi += self.write_segment_v2(remainder_sequence, mem[wi..]);
+            wi += self.write_segment(remainder_sequence, mem[wi..]);
             _ = vmsplice(std.posix.STDOUT_FILENO, mem[0..wi]);
         }
 
