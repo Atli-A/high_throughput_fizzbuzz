@@ -4,51 +4,6 @@ const builtin = @import("builtin");
 const dprint = std.debug.print;
 const assert = std.debug.assert;
 
-/// if implementation fails
-/// https://stackoverflow.com/questions/55802309/is-there-a-256-bit-integer-type-in-c
-/// Golden Sequence:
-///
-/// Consider one fizzbuzz segment which matches the following
-/// where every number is the same width.
-/// Example (' ' = '\n', '#' = number, 'F' = 'Fizz', B = 'Buzz', FB = 'FizzBuzz'):
-/// # # F # B F # # F B # F # # FB
-///
-/// Since all the numbers are of known width the length of this string is
-/// comptime known when len(#) is comptime known.
-///
-/// Additionally, we treat the whole string as a large number
-///
-/// since the ascii digits 0 to 9 are in binary as ?011 XXXX
-/// so '0' is naturally stored as 0011 0000
-/// however we will store it as 1111 0111. (adding 7 to the original)
-/// This allows for adding to overflow to the next byte.
-/// All non number bytes are stored as 1111 1111
-///
-/// For example the segment matching the string "11 Fizz 13 14 FizzBuzz" becomes
-/// parantheses group words
-///
-/// '11 '   1111_1000 1111_1000 1111_1111
-/// 'Fizz ' 1111_1111 1111_1111 1111_1111 1111_1111 1111_1111
-/// '13 '   1111_1000 1111_1010 1111_1111
-/// '14 '   1111_1000 1111_1011 1111_1111
-/// 'FizzBuzz ' 1111_1111 1111_1111 1111_1111 1111_1111 1111_1111 1111_1111 1111_1111 1111_1111 1111_1111
-///
-///
-/// to convert these stored numbers to their string version we must perform
-/// several operations
-///
-/// what we do for letters does not matter
-/// but for each byte we do the following
-/// 1111_XXXX -> 0011_(XXXX - 7)
-///
-/// 1 = 1111_1000 => 0011_0001 = '1'
-
-// TODOs long term
-//
-// @byteSwap may be slower than @shuffle
-//
-
-
 const c = @cImport({
     if (builtin.mode == .ReleaseFast) {
         @cDefine("NDEBUG", {}); // needed?
@@ -241,7 +196,7 @@ const Template = struct {
 
     template: []const u8,
     numbers: []const Number,
-
+    trailing_increment: usize,
 
 };
 
@@ -253,13 +208,7 @@ fn buildSegmentTemplate(Sequence: []const FizzBuzzToken, conf: FizzBuzzConfig) T
     result.template = "";
     result.numbers = &.{};
 
-    var last_i: comptime_int = blk: {
-        var i = 0;
-        while (@as(comptime_int, Sequence.len) + i - 1 >= 0 and Sequence[@as(comptime_int, Sequence.len) + i - 1] != .Number) {
-            i -= 1;
-        }
-        break :blk i-1;
-    };
+    var last_i = 0;
     inline for (Sequence, 0..) |Token, i| {
         const to_add = switch (Token) {
             .Number => blk: {
@@ -275,6 +224,7 @@ fn buildSegmentTemplate(Sequence: []const FizzBuzzToken, conf: FizzBuzzConfig) T
             .Buzz => conf.buzz,
             .FizzBuzz => conf.fizzbuzz,
         };
+        result.trailing_increment = Sequence.len - last_i;
         result.template = result.template ++ to_add ++ conf.seperator;
     }
     return result;
@@ -324,18 +274,8 @@ fn FizzBuzzer(comptime _number_len: comptime_int) type {
 
             // to account for the fact that the writer wants to add on its very first number,
             // we must subtract by how many previous sequential tokens were not numbers
-            const init_value = comptime blk: {
-                var i: comptime_int = 0;
-                while (segment_sequence[@as(comptime_int, segment_sequence.len) - 1 - i] != .Number) : (i += 1) {}
-                
-                break :blk comptime_powi(10, conf.number_len-1) - i - 1;
-            };
-//            _ = init_value;
-            if (conf.number_len > 1) {
-                self.number.assign(init_value);
-            } else {
-                self.number.assign(0);
-            }
+
+            self.number.smallest_full_len();
 
             for (0..segment_count) |_| {
                 wi += self.write_segment_v2(segment_sequence, false, mem[wi..]);
@@ -386,12 +326,15 @@ fn FizzBuzzer(comptime _number_len: comptime_int) type {
 
             const template = comptime buildSegmentTemplate(sequence, conf);
             @memcpy(memory[0..template.template.len], template.template);
+            _ = dont_add_first;
            
             inline for (template.numbers, 0..) |num, i| {
-                if (comptime !(dont_add_first and i == 0)) self.number.add(num.increment);
+                _ = i;
+                //if (comptime !(dont_add_first and i == 0)) 
                 self.number.add(num.increment);
                 self.number.to_str(memory[num.index_in_template..num.index_in_template+conf.number_len]);
             }
+            self.number.add(template.trailing_increment);
             return template.template.len;
         }
 
@@ -399,7 +342,7 @@ fn FizzBuzzer(comptime _number_len: comptime_int) type {
 }
 
 pub fn main() !void {
-    inline for (0..20) |i| {
+    inline for (1..3) |i| {
         var fb = FizzBuzzer(i).init(std.heap.page_allocator);
         try fb.start();
     }
