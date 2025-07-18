@@ -49,15 +49,15 @@ const FizzBuzzConfig = struct {
     buzz: []const u8,
     fizzbuzz: []const u8,
     seperator: []const u8,
-
-    fn calculateRepeatLength(conf: FizzBuzzConfig, sequence: []FizzBuzzToken) usize {
-        // determines the smallest number such that
-        // you can add a 10^x to every number and the sequence remained the same
-
-    }
 };
 
 /// a FizzBuzzer is in charge of printing
+///
+/// some definitions
+/// token: a fizz, buzz, fizzbuzz, or number
+/// segment: a continuous list of 15 fizzbuzz elements starting anywhere in the pattern
+/// run: a continuous set of tokens where all numbers can be incremented whose factors include at least one 10 to get the next run.
+/// block: a piece of memory of BLK_SIZE to be written to stdout
 fn FizzBuzzer(comptime _number_len: comptime_int) type {
     const Sequence: []const FizzBuzzToken = &StandardFizzBuzz;
     const conf = FizzBuzzConfig{
@@ -68,7 +68,22 @@ fn FizzBuzzer(comptime _number_len: comptime_int) type {
         .seperator = "\n", // should be newline
     };
 
+
+    // NOTE FOR SELF BENCHMARKING
+    // we want to minimize total_cost
+    // total_cost = create_cost_per_part*RUN_LENGTH + increment_cost_per_part*(total_length/RUN_LENGTH)
+    // total_length = 10^(number_len-1)
+    // RUN_LENGTH = run_increment * 10^(run_index)
+    // when self benchmarking, this allows us to quickly calculate the optimal run length by minimizing total cost with respoect to total length in the above equation.
+    const run_increment: usize = 3;
+    const run_index: usize = 7
+    const RUN_LENGTH: usize = run_increment * comptime_powi(10, run_index);
+    // the amount of memory used by a run_length
+    const RUN_MEMORY: usize = @compileError("TODO"); // TODO use segemnts and remainders to calculate it
+
     const BLK_SIZE = 1 << 16;
+    
+    // rationale: must be 3*10^x since we start at 10^(conf.number_len - 2) and then we can add 10^(conf.number_len - 3) 3 times to write
     const REPEAT_SIZE = 1 << 24;
 
     return struct {
@@ -76,18 +91,27 @@ fn FizzBuzzer(comptime _number_len: comptime_int) type {
 
         allocator: std.mem.Allocator,
         number: StrInt(conf.number_len),
+        // 
         mem: []u8,
 
         fn init(allocator: std.mem.Allocator) Self {
             return .{ .allocator = allocator, .number = StrInt(conf.number_len).init() };
         }
 
-        fn alloc(self: *Self) !void {
-            self.mem = try self.allocator.alloc(u8, 2 * BLK_SIZE);
+        fn alloc(self: *Self) !void { 
+            self.mem = try self.allocator.alloc(u8, RUN_MEMORY);
         }
 
-        fn start(self: *Self) void {
-            
+        fn create_run(self: *Self) void {
+            // 1. in loop create all the core segments 
+            @call(.always_inline, self.create_segment, .{0, 0, 0});
+
+            // 2. create remainder segment
+            @call(.always_inline, self.create_segment, .{0, 0, 0});
+        }
+
+        fn increment_run(self: *Self) void {
+
         }
 
         fn write_block_if_possible(self: *Self) void {
