@@ -3,6 +3,7 @@ const builtin = @import("builtin");
 
 const dprint = std.debug.print;
 const assert = std.debug.assert;
+const testing = std.testing;
 
 pub fn comptime_powi(x: comptime_int, y: comptime_int) comptime_int {
     var result = 1;
@@ -29,18 +30,17 @@ pub fn StrInt(comptime _len: comptime_int) type {
         const byteSwap = if (true) shuffleByteSwap else wrappedByteSwap;
 
         number: UnionType,
-
-        const ZERO_VALUE: u8 = 0xF6;
-        const MIN_INTERNAL: u8 = ZERO_VALUE & 0x0F;
+        
+        const BASE = 10;
+        const MIN_INTERNAL: u8 = 0xFF - (BASE - 1);
         const endianness = builtin.target.cpu.arch.endian();
 
         pub fn init() Self {
-            if (@bitSizeOf(IntType) != @bitSizeOf(UnionType) or @bitSizeOf(StrType) != @bitSizeOf(UnionType)) {
-                @compileError(std.fmt.comptimePrint("mismatch sizes {} {} {}", .{IntType, UnionType, StrType}));
+            if (@bitSizeOf(IntType) != @bitSizeOf(UnionType) or 
+                @bitSizeOf(StrType) != @bitSizeOf(UnionType)) {
+                @compileError(std.fmt.comptimePrint("mismatch sizes", .{}));
             }
-            return .{
-                .number = UnionType{ .int = 0 },
-            };
+            return .{ .number = UnionType{ .int = 0 }, };
         }
 
         fn splat(x: u8) StrType {
@@ -64,77 +64,86 @@ pub fn StrInt(comptime _len: comptime_int) type {
             return @shuffle(u8, s, unused, mask);
         }
 
-        /// Zeroes the entire UnionType
-        fn zero(self: *Self) void {
-            self.number.str = splat(ZERO_VALUE);
-        }
-
-        /// sets itself to the smallest number utilizing all its digits
-        fn smallest_full_len(self: *Self) void {
-            self.zero();
-
-            var x: ArrType = undefined;
-            @memset(&x, 0);
-            x[x.len - 1] = 1;
-            self.number.str += @as(StrType, x);
-        }
-
         pub fn assign(self: *Self, comptime x: comptime_int) void {
-            self.zero();
-            // this section sucks
-            const vec: StrType = comptime blk: {
+            self.number.str = comptime blk: {
                 var arr_c: []const u8 = std.fmt.comptimePrint("{d}", .{x});
                 const factor = length - arr_c.len;
                 if (factor < 0) {
-                    @compileError(std.fmt.comptimePrint("Cannot assign constant {d} to StrInt of width {d}", ));
+                    @compileError(std.fmt.comptimePrint("Cannot assign {d} to StrInt of width {d}", .{x, length}));
                 }
                 arr_c = "0"**factor ++ arr_c;
                 break :blk arr_c[0..length].*;
             };
-            assert(@reduce(.And, splat('0') <= vec) and @reduce(.And, vec <= splat('9')));
-            self.number.str += byteSwap(vec) - splat('0');
-        }
-
-        fn debug(self: Self) void {
-            for (0..length) |i| {
-                dprint("{0X:0<2.2} ", .{self.number.str[i]});
-            }
-            dprint("\n", .{});
+            self.invariant();
         }
 
         fn invariant(self: Self) void {
-            assert(@reduce(.And, ((self.number.str & splat(0x0F)) >= splat(MIN_INTERNAL))));
+            assert(@reduce(.And, self.number.str <= splat('9')));
+            assert(@reduce(.And, self.number.str >= splat('0')));
         }
 
         pub fn add(self: *Self, x: u8) void {
+            if (comptime endianness == .little) {
+                self.number.str = byteSwap(self.number.str);
+            }
+
+            self.number.str += splat(MIN_INTERNAL - '0');
+
             // add
             self.number.int +%= x;
 
-            // where we need to add 7
-            const need_correction = (splat(0x0F) & self.number.str) < splat(MIN_INTERNAL);
-            // currect when we need to add 7
-            self.number.str +%= @select(u8, need_correction, splat(MIN_INTERNAL), splat(0x00));
-            // set upper 4 bits to 1
-            self.number.str |= splat(0xF0);
+            const wrapped_over = self.number.str < splat(MIN_INTERNAL);
+            self.number.str -= @select(u8, wrapped_over, splat(0), splat(MIN_INTERNAL));
+            self.number.str += splat('0');
+
+            if (comptime endianness == .little) {
+                self.number.str = byteSwap(self.number.str);
+            }
+            
             self.invariant();
         }
 
         pub fn to_str(self: *Self, out: *ArrType) void {
-            if (comptime endianness == .little) {
-                self.number.str = byteSwap(self.number.str);
-            }
-
-            out.* = (
-                // the lower 4 bits are just the number itself not its internal representation
-                (self.number.str & splat(0x0F)) - splat(MIN_INTERNAL)
-                    // upper bits are just 0x30
-                | splat(0x30));
-
-            if (comptime endianness == .little) {
-                self.number.str = byteSwap(self.number.str);
-            }
+            out.* = self.number.str;
         }
     };
 }
 
+test "strs" {
+    const T = StrInt(5);
+    var x = T.init();
+    x.assign(1);
 
+    var out: T.ArrType = undefined;
+    x.to_str(&out);
+
+    try testing.expectEqualSlices(u8, &out, "00001");
+    
+
+    x.assign(54321);
+    x.to_str(&out);
+    try testing.expectEqualSlices(u8, &out, "54321");
+    
+    x.assign(100);
+    x.to_str(&out);
+    try testing.expectEqualSlices(u8, &out, "00100");
+}
+
+test "add" {
+    const T = StrInt(5);
+    var x = T.init();
+    var out: T.ArrType = undefined;
+
+
+    x.assign(1);
+    x.to_str(&out);
+    try testing.expectEqualSlices(u8, &out, "00001");
+
+    x.add(1);
+    x.to_str(&out);
+    try testing.expectEqualSlices(u8, &out, "00002");
+
+    x.add(10);
+    x.to_str(&out);
+    try testing.expectEqualSlices(u8, &out, "00012");
+}

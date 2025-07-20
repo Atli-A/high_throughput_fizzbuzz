@@ -64,6 +64,7 @@ const FizzBuzzConfig = struct {
     fn tokenToLengthWithSeperator(self: Self, token: FizzBuzzToken) usize {
         return self.tokenToLength(token) + self.seperator.len;
     }
+
 };
 
 
