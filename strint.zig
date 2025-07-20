@@ -17,7 +17,7 @@ pub fn StrInt(comptime _len: comptime_int) type {
         const Self = @This();
         const length = _len;
 
-        const IntType = std.math.IntFittingRange(0, length * 8);
+        const IntType = std.math.IntFittingRange(0, 1 << (length * 8 - 1));
         const StrType = @Vector(length, u8);
         const ArrType = [length]u8;
 
@@ -26,7 +26,7 @@ pub fn StrInt(comptime _len: comptime_int) type {
             int: IntType,
         };
 
-        const byteSwap = if (false) shuffleByteSwap else wrappedByteSwap;
+        const byteSwap = if (true) shuffleByteSwap else wrappedByteSwap;
 
         number: UnionType,
 
@@ -34,9 +34,9 @@ pub fn StrInt(comptime _len: comptime_int) type {
         const MIN_INTERNAL: u8 = ZERO_VALUE & 0x0F;
         const endianness = builtin.target.cpu.arch.endian();
 
-        fn init() Self {
+        pub fn init() Self {
             if (@bitSizeOf(IntType) != @bitSizeOf(UnionType) or @bitSizeOf(StrType) != @bitSizeOf(UnionType)) {
-                @compileError(std.fmt.comptimePrint("mismatch sizes", .{}));
+                @compileError(std.fmt.comptimePrint("mismatch sizes {} {} {}", .{IntType, UnionType, StrType}));
             }
             return .{
                 .number = UnionType{ .int = 0 },
@@ -79,7 +79,7 @@ pub fn StrInt(comptime _len: comptime_int) type {
             self.number.str += @as(StrType, x);
         }
 
-        fn assign(self: *Self, comptime x: comptime_int) void {
+        pub fn assign(self: *Self, comptime x: comptime_int) void {
             self.zero();
             // this section sucks
             const vec: StrType = comptime blk: {
@@ -106,7 +106,7 @@ pub fn StrInt(comptime _len: comptime_int) type {
             assert(@reduce(.And, ((self.number.str & splat(0x0F)) >= splat(MIN_INTERNAL))));
         }
 
-        fn add(self: *Self, x: u8) void {
+        pub fn add(self: *Self, x: u8) void {
             // add
             self.number.int +%= x;
 
@@ -119,8 +119,7 @@ pub fn StrInt(comptime _len: comptime_int) type {
             self.invariant();
         }
 
-
-        fn to_str(self: *Self, out: *ArrType) void {
+        pub fn to_str(self: *Self, out: *ArrType) void {
             if (comptime endianness == .little) {
                 self.number.str = byteSwap(self.number.str);
             }

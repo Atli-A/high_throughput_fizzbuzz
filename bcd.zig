@@ -41,7 +41,7 @@ const StandardFizzBuzz = [_]FizzBuzzToken{
     FizzBuzzToken.Number, FizzBuzzToken.Number, FizzBuzzToken.FizzBuzz,
 };
 
-const BASE = 10
+const BASE = 10;
 
 const FizzBuzzConfig = struct {
     number_len: usize,
@@ -49,6 +49,44 @@ const FizzBuzzConfig = struct {
     buzz: []const u8,
     fizzbuzz: []const u8,
     seperator: []const u8,
+
+    const Self = @This();
+
+    fn tokenToLength(self: Self, token: FizzBuzzToken) usize {
+        return switch (token) {
+            .Number => self.number_len,
+            .Fizz => self.fizz.len,
+            .Buzz => self.buzz.len,
+            .FizzBuzz => self.fizzbuzz.len,
+        };
+    }
+    
+    fn tokenToLengthWithSeperator(self: Self, token: FizzBuzzToken) usize {
+        return self.tokenToLength(token) + self.seperator.len;
+    }
+};
+
+const SegmentData = struct {
+    segment_bytes: usize,
+    integer_indices: []usize, // the indices of where each number starts int eh bytes sequence
+
+    fn create(conf: FizzBuzzConfig, comptime sequence: []const FizzBuzzToken) SegmentData {
+        var index: usize = 0;
+        @setEvalBranchQuota(1 << 16);
+        var integer_indices: [std.mem.count(FizzBuzzToken, sequence, &[1]FizzBuzzToken{.Number})]usize = undefined;
+        var integer_indices_write_index: usize = 0;
+        inline for (sequence) |token| {
+            if (token == .Number) {
+                integer_indices[integer_indices_write_index] = index;
+                integer_indices_write_index += 1;
+            }
+            index += conf.tokenToLengthWithSeperator(token);
+        }
+        return SegmentData{
+            .segment_bytes = index,
+            .integer_indices = &integer_indices,
+        };
+    }
 };
 
 /// a FizzBuzzer is in charge of printing
@@ -59,7 +97,7 @@ const FizzBuzzConfig = struct {
 /// run: a continuous set of tokens where all numbers can be incremented whose factors include at least one 10 to get the next run.
 /// block: a piece of memory of BLK_SIZE to be written to stdout
 fn FizzBuzzer(comptime _number_len: comptime_int) type {
-    const Sequence: []const FizzBuzzToken = &StandardFizzBuzz;
+    const Sequence: []FizzBuzzToken = @constCast(StandardFizzBuzz[0..]);
     const conf = FizzBuzzConfig{
         .number_len = _number_len,
         .fizz = "Fizz",
@@ -76,16 +114,24 @@ fn FizzBuzzer(comptime _number_len: comptime_int) type {
     // RUN_LENGTH = run_increment * 10^(run_index)
     // when self benchmarking, this allows us to quickly calculate the optimal run length by minimizing total cost with respoect to total length in the above equation.
     const run_increment: usize = 3;
-    const run_index: usize = 7
+    const run_index: usize = @max(1, @as(comptime_int, conf.number_len) - 2);
+    // RUN_LENGTH is in tokens
+    //
     const RUN_LENGTH: usize = run_increment * comptime_powi(10, run_index);
+
+    const starting_number = comptime_powi(10, conf.number_len - 1);
+    const rotated_sequence: []const FizzBuzzToken = Sequence[(starting_number % Sequence.len)..] ++ Sequence[0..(starting_number % Sequence.len)];
+    const segment_count = RUN_LENGTH/rotated_sequence.len;
+    const segment_data = SegmentData.create(conf, rotated_sequence);
+
+    const remainder_sequence = rotated_sequence[0..rotated_sequence.len - RUN_LENGTH % rotated_sequence.len];
+    const remainder_data = SegmentData.create(conf, remainder_sequence);
+
     // the amount of memory used by a run_length
-    const RUN_MEMORY: usize = @compileError("TODO"); // TODO use segemnts and remainders to calculate it
+    const RUN_MEMORY: usize = segment_data.segment_bytes*segment_count + remainder_data.segment_bytes; // TODO use segemnts and remainders to calculate it
 
     const BLK_SIZE = 1 << 16;
     
-    // rationale: must be 3*10^x since we start at 10^(conf.number_len - 2) and then we can add 10^(conf.number_len - 3) 3 times to write
-    const REPEAT_SIZE = 1 << 24;
-
     return struct {
         const Self = @This();
 
@@ -94,33 +140,36 @@ fn FizzBuzzer(comptime _number_len: comptime_int) type {
         // 
         mem: []u8,
 
-        fn init(allocator: std.mem.Allocator) Self {
-            return .{ .allocator = allocator, .number = StrInt(conf.number_len).init() };
-        }
-
-        fn alloc(self: *Self) !void { 
-            self.mem = try self.allocator.alloc(u8, RUN_MEMORY);
+        fn init(allocator: std.mem.Allocator) !Self {
+            return .{ .allocator = allocator, .number = StrInt(conf.number_len).init(), .mem = try allocator.alloc(u8, RUN_MEMORY), };
         }
 
         fn create_run(self: *Self) void {
+            self.number.assign(starting_number + 1);
+            var create_index: usize = 0;
+            var write_index: usize = 0;
             // 1. in loop create all the core segments 
-            @call(.always_inline, self.create_segment, .{0, 0, 0});
+            while (create_index < RUN_MEMORY) {
+                create_index += @call(.always_inline, Self.create_segment, .{self, rotated_sequence, self.mem[create_index..]});
+                if (create_index - write_index >= BLK_SIZE) {
+                    _ = vmsplice(std.posix.STDOUT_FILENO, self.mem[write_index..][0..BLK_SIZE]);
+                    write_index += BLK_SIZE;
+                }
+            }
+            _ = vmsplice(std.posix.STDOUT_FILENO, self.mem[write_index..create_index]);
 
             // 2. create remainder segment
-            @call(.always_inline, self.create_segment, .{0, 0, 0});
+            create_index += @call(.always_inline, Self.create_segment, .{self, remainder_sequence, self.mem[write_index..]});
         }
 
         fn increment_run(self: *Self) void {
-
-        }
-
-        fn write_block_if_possible(self: *Self) void {
-                        
+            @call(.always_inline, self.increment_segment, .{0, 0, 0});
         }
 
         fn create_segment(self: *Self, comptime sequence: []const FizzBuzzToken, memory: []u8) usize {
             var wi: usize = 0;
-            inline for (sequence) |token| {
+            var last_i: usize = 0;
+            inline for (sequence, 0..) |token, i| {
                 wi += switch (token) {
                     .Fizz => blk: {
                         @memcpy(memory[wi .. wi + conf.fizz.len], conf.fizz);
@@ -135,6 +184,8 @@ fn FizzBuzzer(comptime _number_len: comptime_int) type {
                         break :blk conf.fizzbuzz.len;
                     },
                     .Number => blk: {
+                        self.number.add(@intCast(i - last_i));
+                        last_i = i;
                         // ugly syntax from here
                         // https://ziggit.dev/t/coercing-a-slice-to-an-array/2416/5
                         self.number.to_str(&(memory[wi..][0..conf.number_len].*));
@@ -147,14 +198,21 @@ fn FizzBuzzer(comptime _number_len: comptime_int) type {
 
             return wi;
         }
+        
+        fn increment_segment(self: *Self, comptime number_indices: []usize, memory: []u8) void {
+            _ = self;
+            inline for (number_indices) |index| {
+                @as(StrInt(conf.number_len - run_index), &memory[index]).add(run_increment);
+            }
+        }
 
     };
 }
 
 pub fn main() !void {
-    inline for (1..20) |i| {
-        var fb = FizzBuzzer(i).init(std.heap.page_allocator);
-        try fb.start();
+    inline for (1..5) |i| {
+        var fb = try FizzBuzzer(i).init(std.heap.page_allocator);
+        fb.create_run();
     }
     
 }
