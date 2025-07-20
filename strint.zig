@@ -138,5 +138,3 @@ pub fn StrInt(comptime _len: comptime_int) type {
 }
 
 
-// 11 F 13 14 FB 16 17 F 19 B F 22 23 F B
-// 26 F 28 29 FB 31 32 F 33 B F 36 37 F B

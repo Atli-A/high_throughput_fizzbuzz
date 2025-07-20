@@ -165,10 +165,10 @@ fn FizzBuzzer(comptime _number_len: comptime_int) type {
         fn increment_run(self: *Self) void {
             var position: usize = 0;
             for (0..segment_count) |_| {
-                @call(.always_inline, Self.increment_segment, .{self, segment_data.integer_indices, self.mem[position..]});
+                @call(.always_inline, Self.increment_segment, .{self, &segment_data.integer_indices, self.mem[position..]});
                 position += segment_data.segment_bytes;
             }
-            @call(.always_inline, Self.increment_segment, .{self, remainder_data.integer_indices, self.mem[position..]});
+            @call(.always_inline, Self.increment_segment, .{self, &remainder_data.integer_indices, self.mem[position..]});
             position += remainder_data.segment_bytes;
         }
 
@@ -205,9 +205,10 @@ fn FizzBuzzer(comptime _number_len: comptime_int) type {
             return wi;
         }
         
-        fn increment_segment(self: *Self, comptime number_indices: []usize, memory: []u8) void {
+        fn increment_segment(self: *Self, comptime number_indices: []const usize, memory: []u8) void {
+            _ = self;
             inline for (number_indices) |index| {
-                @as(StrInt(conf.number_len - run_index), &memory[index]).add(run_increment);
+                memory[index] += 1;
             }
         }
 
@@ -218,6 +219,7 @@ pub fn main() !void {
     inline for (3..5) |i| {
         var fb = try FizzBuzzer(i).init(std.heap.page_allocator);
         fb.create_run();
+        fb.increment_run();
     }
     
 }
