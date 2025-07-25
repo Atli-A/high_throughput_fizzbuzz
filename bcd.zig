@@ -138,11 +138,18 @@ fn FizzBuzzer(comptime _number_len: comptime_int) type {
 
         allocator: std.mem.Allocator,
         number: StrInt(conf.number_len),
-        // 
         mem: []u8,
 
         fn init(allocator: std.mem.Allocator) !Self {
             return .{ .allocator = allocator, .number = StrInt(conf.number_len).init(), .mem = try allocator.alloc(u8, RUN_MEMORY), };
+        }
+
+        fn start(self: *Self) void {
+            self.create_run();
+            const run_count = ((BASE - 1)/run_increment) * comptime_powi(10, conf.number_len - run_index);
+            for (0..run_count) |_| {
+                self.increment_run();
+            }
         }
 
         fn create_run(self: *Self) void {
@@ -165,12 +172,19 @@ fn FizzBuzzer(comptime _number_len: comptime_int) type {
 
         fn increment_run(self: *Self) void {
             var position: usize = 0;
+            var write_index: usize = 0;
             for (0..segment_count) |_| {
                 @call(.always_inline, Self.increment_segment, .{self, &segment_data.integer_indices, self.mem[position..]});
                 position += segment_data.segment_bytes;
+                if (position - write_index >= BLK_SIZE) {
+                    _ = vmsplice(std.posix.STDOUT_FILENO, self.mem[write_index..][0..BLK_SIZE]);
+                    write_index += BLK_SIZE;
+                }
             }
             @call(.always_inline, Self.increment_segment, .{self, &remainder_data.integer_indices, self.mem[position..]});
             position += remainder_data.segment_bytes;
+//            dprint("{s}\n", .{self.mem[write_index..position]});
+            _ = vmsplice(std.posix.STDOUT_FILENO, self.mem[write_index..position]);
         }
 
         fn create_segment(self: *Self, comptime sequence: []const FizzBuzzToken, memory: []u8) usize {
@@ -191,11 +205,11 @@ fn FizzBuzzer(comptime _number_len: comptime_int) type {
                         break :blk conf.fizzbuzz.len;
                     },
                     .Number => blk: {
-                        self.number.add(@intCast(i - last_i));
-                        last_i = i;
                         // ugly syntax from here
                         // https://ziggit.dev/t/coercing-a-slice-to-an-array/2416/5
                         self.number.to_str(&(memory[wi..][0..conf.number_len].*));
+                        self.number.add(@intCast(i - last_i));
+                        last_i = i;
                         break :blk conf.number_len;
                     },
                 };
@@ -208,8 +222,13 @@ fn FizzBuzzer(comptime _number_len: comptime_int) type {
         
         fn increment_segment(self: *Self, comptime number_indices: []const usize, memory: []u8) void {
             _ = self;
+        
+            const strint_len = conf.number_len - run_index;
+            const IncrementType: type = StrInt(strint_len);
             inline for (number_indices) |index| {
-                memory[index] += 1;
+                const to_increment: *IncrementType = @ptrCast(&memory[index]);
+                to_increment.add(run_increment);
+                to_increment.to_str(memory[index..index+strint_len]);
             }
         }
 
@@ -219,8 +238,7 @@ fn FizzBuzzer(comptime _number_len: comptime_int) type {
 pub fn main() !void {
     inline for (3..5) |i| {
         var fb = try FizzBuzzer(i).init(std.heap.page_allocator);
-        fb.create_run();
-        fb.increment_run();
+        fb.start();
     }
     
 }

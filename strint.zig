@@ -29,7 +29,7 @@ pub fn StrInt(comptime _len: comptime_int) type {
 
         const byteSwap = if (true) shuffleByteSwap else wrappedByteSwap;
 
-        number: UnionType,
+        number: UnionType align(1),
         
         const BASE = 10;
         const MIN_INTERNAL: u8 = 0xFF - (BASE - 1);
@@ -105,6 +105,7 @@ pub fn StrInt(comptime _len: comptime_int) type {
 
         pub fn to_str(self: *Self, out: *ArrType) void {
             out.* = self.number.str;
+            self.invariant();
         }
     };
 }
@@ -147,3 +148,7 @@ test "add" {
     x.to_str(&out);
     try testing.expectEqualSlices(u8, &out, "00012");
 }
+
+
+
+// TODO try u4 based version 
