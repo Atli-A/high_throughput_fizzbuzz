@@ -1,6 +1,8 @@
 const std = @import("std");
 const builtin = @import("builtin");
 
+const bench = @import("bench.zig");
+
 const dprint = std.debug.print;
 const assert = std.debug.assert;
 const testing = std.testing;
@@ -36,8 +38,7 @@ pub fn StrInt(comptime _len: comptime_int) type {
         const endianness = builtin.target.cpu.arch.endian();
 
         pub fn init() Self {
-            if (@bitSizeOf(IntType) != @bitSizeOf(UnionType) or 
-                @bitSizeOf(StrType) != @bitSizeOf(UnionType)) {
+            if (@bitSizeOf(IntType) != @bitSizeOf(UnionType) or @bitSizeOf(StrType) != @bitSizeOf(UnionType)) {
                 @compileError(std.fmt.comptimePrint("mismatch sizes", .{}));
             }
             return .{ .number = UnionType{ .int = 0 }, };
@@ -78,7 +79,7 @@ pub fn StrInt(comptime _len: comptime_int) type {
         }
 
         fn invariant(self: Self) void {
-            assert(@reduce(.And, self.number.str <= splat('9')));
+            assert(@reduce(.And, self.number.str <= splat('0' + BASE - 1)));
             assert(@reduce(.And, self.number.str >= splat('0')));
         }
 
@@ -108,6 +109,32 @@ pub fn StrInt(comptime _len: comptime_int) type {
             self.invariant();
         }
     };
+}
+
+
+pub fn time_swaps() void {
+    const iterations = 10000;
+    inline for (1..100) |width| {
+        const T = StrInt(width);
+        const x: T.StrType = undefined;
+        const shuffle_time = bench.microbench(T.shuffleByteSwap, .{x}, iterations);
+        const byteswap_time = bench.microbench(T.wrappedByteSwap, .{x}, iterations);
+        const shuffle_better = shuffle_time < byteswap_time;
+        std.debug.print("{s}\n", .{@typeName(T)});
+        std.debug.print("\tshuffle:  {d} ns{s}\n", .{shuffle_time, (if (shuffle_better) "!" else "")});
+        std.debug.print("\tbyteswap: {d} ns{s}\n", .{byteswap_time, (if (!shuffle_better) "!" else "")});
+    }
+}
+
+pub fn time_adds() void {
+    const iterations = 1000;
+    inline for (5..100) |width| {
+        const T = StrInt(width);
+        var x = T.init();
+        x.assign(0);
+        const time = bench.microbench(T.add, .{&x, 1}, iterations);
+        std.debug.print("{s}.add: {} ns\n", .{@typeName(T), @divTrunc(time, @as(@TypeOf(time), iterations))});
+    }
 }
 
 test "strs" {
