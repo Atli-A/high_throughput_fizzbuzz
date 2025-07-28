@@ -44,43 +44,52 @@ const StandardFizzBuzz = &[_]FizzBuzzToken{
 
 /// exists since std.mem.rotate doesn't work at comptime
 /// rotates left
-fn comptime_rotate_slice(comptime T: type, comptime slice: []T, comptime by: comptime_int) []T {
+fn comptime_rotate_slice(comptime T: type, comptime slice: []const T, comptime by: comptime_int) []const T {
     const position = by % slice.len;
     return slice[position..] ++ slice[0..position];
 }
 
-fn write_segment(comptime generator: []const FizzBuzzToken, to: []u8) usize {
+
+const Config = struct {
     const Fizz = "Fizz";
     const Buzz = "Buzz";
     const FizzBuzz = "FizzBuzz";
     const Seperator = "\n";
 
-    var last_i: usize = 0;
-    var wi: usize = 0; // write index
-    inline for (generator, 0..) |token, i| {
-        if (token == .Number) {
-            // ugly syntax from here
-            // https://ziggit.dev/t/coercing-a-slice-to-an-array/2416/5
-            self.number.to_str(&(memory[wi..][0..conf.number_len].*));
-            self.number.add(@intCast(i - last_i));
-            last_i = i;
-        } else {
+    fn segment_length(comptime generator: []const FizzBuzzToken, digits: usize) usize {
+        var position: usize = 0;
+        inline for (generator) |token| {
+            position += (switch (token) {
+                .Fizz => Fizz.len,
+                .Buzz => Buzz.len,
+                .FizzBuzz => FizzBuzz.len,
+                .Number => digits,
+            });
+            position += Seperator.len;
+        }
+        return position;
+    }
+
+    fn write_segment(comptime digits: usize, comptime generator: []const FizzBuzzToken, number: *StrInt(digits), to: []u8) usize {
+        var wi: usize = 0; // write index
+//        std.debug.print("{s}\n", .{number.string()});
+        inline for (generator, 0..) |token, i| {
+            _ = i;
             const string = switch (token) {
                 .Fizz => Fizz,
                 .Buzz => Buzz,
                 .FizzBuzz => FizzBuzz,
-                else => unreachable,
+                .Number => number.string(),
             };
-            @memcpy(memory[wi .. wi + string.len], string);
+            @memcpy(to[wi .. wi + string.len], string);
             wi += string.len;
+            @memcpy(to[wi .. wi + Seperator.len], Seperator);
+            wi += Seperator.len;
+            number.add(1);
         }
-        @memcpy(memory[wi .. wi + Seperator.len], Seperator);
-        wi += Seperator.len;
+        return wi;
     }
-    return wi;
-}
-
-
+};
 
 const SegmentSetup = struct {
     core_generator: []const FizzBuzzToken,
@@ -91,43 +100,80 @@ const SegmentSetup = struct {
         return .{
             .core_generator = generator,
             .segment_count = total_number/generator.len,
-            .remainder_generator = generator[total_number % generator.len],
+            .remainder_generator = generator[0..(total_number % generator.len)],
         };
     }
 };
 
+const Synchornizer = struct {
+    const Task = struct {
+        task_id: usize,
+    };
+};
+
 const FizzBuzzer = struct {
+    const BLK_SIZE = 1 << 15;
     const Self = @This();
     mem: []u8,
     allocator: std.mem.Allocator,
+    pipe_index: usize,
     write_index: usize,
 
 
-    fn init(allocator: std.mem.Allocator) Self {
+    fn init(allocator: std.mem.Allocator) !Self {
         return .{
             .mem = try allocator.alloc(u8, 10000),
             .allocator = allocator,
             .write_index = 0,
+            .pipe_index = 0,
         };
     }
 
-    fn start(self: *Self) void {
-        inline for (0..20) |i| {
-            self.create(i);
+    fn start(self: *Self) !void {
+        inline for (1..5) |i| {
+            try self.create(i);
         }
     }
 
-    fn create(self: *Self, comptime digits: usize) void {
+    fn pipe(self: *Self, block: bool) void {
+        if (block) {
+            if (self.write_index - self.pipe_index >= BLK_SIZE) {
+                _ = vmsplice(std.posix.STDOUT_FILENO, self.mem[self.pipe_index..self.pipe_index + BLK_SIZE]);
+                self.pipe_index += BLK_SIZE;
+            }
+        } else {
+            _ = vmsplice(std.posix.STDOUT_FILENO, self.mem[self.pipe_index..self.write_index]);
+            self.pipe_index = self.write_index;
+        }
+    }
+
+    fn create(self: *Self, comptime digits: usize) !void {
         const starting_number = comptime_powi(10, digits-1);
         const ending_number = comptime_powi(10, digits) - 1;
-        const generator = comptime_rotate_slice(FizzBuzzToken, StandardFizzBuzz, starting_number);
+        const generator = comptime comptime_rotate_slice(FizzBuzzToken, StandardFizzBuzz, starting_number);
         const segment_setup = SegmentSetup.from(generator, ending_number - starting_number);
+        
+
+        const byte_length = (
+            segment_setup.segment_count * Config.segment_length(segment_setup.core_generator, digits)
+            + Config.segment_length(segment_setup.remainder_generator, digits)
+        );
+        self.mem = try self.allocator.alloc(u8, byte_length);
+        self.write_index = 0;
+        self.pipe_index = 0;
+
+        var number = StrInt(digits).init();
+        number.assign(starting_number);
        
         for (0..segment_setup.segment_count) |_| {
-            self.write_index += write_segment(segment_setup.core_generator, self.mem[write_index..])
-        }
-        self.write_index += write_segment(segment_setup.remainder_generator, self.mem[write_index..])
+            self.write_index += Config.write_segment(digits, segment_setup.core_generator, &number, self.mem[self.write_index..]);
+            self.pipe(true);
 
+        }
+        self.write_index += Config.write_segment(digits, segment_setup.remainder_generator, &number, self.mem[self.write_index..]);
+        self.pipe(false);
+
+        self.allocator.free(self.mem);
     }
 
     fn cleanup(self: Self) void {
@@ -137,5 +183,6 @@ const FizzBuzzer = struct {
 };
 
 pub fn main() !void {
-    strint.time_adds(); 
+    var fb = try FizzBuzzer.init(std.heap.page_allocator);
+    try fb.start();
 }

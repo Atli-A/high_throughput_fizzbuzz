@@ -84,6 +84,7 @@ pub fn StrInt(comptime _len: comptime_int) type {
         }
 
         pub fn add(self: *Self, x: u8) void {
+            self.invariant();
             if (comptime endianness == .little) {
                 self.number.str = byteSwap(self.number.str);
             }
@@ -108,6 +109,11 @@ pub fn StrInt(comptime _len: comptime_int) type {
             out.* = self.number.str;
             self.invariant();
         }
+
+        pub fn string(self: Self) []const u8 {
+            return &@as(ArrType, self.number.str);
+        }
+
     };
 }
 
@@ -179,3 +185,5 @@ test "add" {
 
 
 // TODO try u4 based version 
+//
+//
