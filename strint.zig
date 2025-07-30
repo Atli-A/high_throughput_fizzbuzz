@@ -133,13 +133,15 @@ pub fn time_swaps() void {
 }
 
 pub fn time_adds() void {
-    const iterations = 1000;
-    inline for (5..100) |width| {
+    const iterations = 100000;
+    inline for (1..100) |width| {
         const T = StrInt(width);
         var x = T.init();
         x.assign(0);
         const time = bench.microbench(T.add, .{&x, 1}, iterations);
+        const time2 = bench.microbench(T.string, .{x}, iterations);
         std.debug.print("{s}.add: {} ns\n", .{@typeName(T), @divTrunc(time, @as(@TypeOf(time), iterations))});
+        std.debug.print("{s}.string: \t\t{} ns\n", .{@typeName(T), @divTrunc(time2, @as(@TypeOf(time2), iterations))});
     }
 }
 

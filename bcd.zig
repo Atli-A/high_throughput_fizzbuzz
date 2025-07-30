@@ -130,7 +130,7 @@ const FizzBuzzer = struct {
     }
 
     fn start(self: *Self) !void {
-        inline for (1..5) |i| {
+        inline for (1..20) |i| {
             try self.create(i);
         }
     }
@@ -150,7 +150,7 @@ const FizzBuzzer = struct {
     fn create(self: *Self, comptime digits: usize) !void {
         const starting_number = comptime_powi(10, digits-1);
         const ending_number = comptime_powi(10, digits) - 1;
-        const generator = comptime comptime_rotate_slice(FizzBuzzToken, StandardFizzBuzz, starting_number);
+        const generator = comptime comptime_rotate_slice(FizzBuzzToken, StandardFizzBuzz, starting_number - 1);
         const segment_setup = SegmentSetup.from(generator, ending_number - starting_number);
         
 
@@ -172,7 +172,7 @@ const FizzBuzzer = struct {
         }
         self.write_index += Config.write_segment(digits, segment_setup.remainder_generator, &number, self.mem[self.write_index..]);
         self.pipe(false);
-
+        std.time.sleep(10);
         self.allocator.free(self.mem);
     }
 
@@ -183,6 +183,7 @@ const FizzBuzzer = struct {
 };
 
 pub fn main() !void {
-    var fb = try FizzBuzzer.init(std.heap.page_allocator);
-    try fb.start();
+//    var fb = try FizzBuzzer.init(std.heap.page_allocator);
+//    try fb.start();
+    strint.time_adds();
 }
