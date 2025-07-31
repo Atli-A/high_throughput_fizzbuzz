@@ -106,14 +106,86 @@ const SegmentSetup = struct {
 };
 
 const Synchronizer = struct {
+    const Self = @This();
+    const MAX_TASK_LEN = 1_000_000;
+    const MAX_NUMBER_WIDTH = 32;
+    const TaskId = u64;
+    const NumType = u64;
+
     const Task = struct {
-        segments: usize,
+        starting_num: NumType,
+        ending_num: NumType,
+        task_id: TaskId,
+
+        fn dprint(self: Task) void {
+            std.debug.print("start: {} end: {} id: {}\n", .{self.starting_num, self.ending_num, self.task_id});
+        }
     };
-    run: usize,
+
+    waiting_task: TaskId,
+    mutex: std.Thread.Mutex,
+    cond: std.Thread.Condition,
+    last_task: Task,
+    allocator: std.mem.Allocator,
+
+
+    fn init(allocator: std.mem.Allocator) Synchronizer {
+        return .{
+            .allocator = allocator,
+            .waiting_task = 0,
+            .mutex = .{},
+            .cond = .{},
+            .last_task = .{
+                .starting_num = 0,
+                .ending_num = 0,
+                .task_id = 0,
+            },
+        };
+    }
+
+    fn nextTask(self: *Self) !?Task {
+        self.mutex.lock();
+        defer self.mutex.unlock();
+        
+        const digits = std.math.log10_int(self.last_task.ending_num+1);
+
+        const above_pow10 = (try std.math.powi(NumType, 10, digits+1)) - 1;
+
+        self.last_task = .{
+            .task_id = self.last_task.task_id + 1,
+            .starting_num = self.last_task.ending_num + 1,
+            .ending_num = @min(above_pow10, self.last_task.ending_num + MAX_TASK_LEN),
+        };
+
+        return self.last_task;
+    }
+
+    fn thread(self: *Self) void {
+    }
+
+
+    fn start(self: *Self) !void {
+        const cpu_count = try std.Thread.getCpuCount();
+
+        const threads = try self.allocator.alloc(cpu_count, std.Thread, cpu_count);
+
+        for (0..cpu_count) |i| {
+            threads[i] = try std.Thread.spawn(.{}, Self., .{self});
+        }
+
+        for (threads) |thread| {
+            thread.join();
+        }
+    }
 };
 
 pub fn main() !void {
-//    var fb = try FizzBuzzer.init(std.heap.page_allocator);
-//    try fb.start();
-    strint.time_adds();
+
+    var sync = Synchronizer.init();
+
+    for (0..100) |_| {
+        const t = try sync.nextTask();
+        t.dprint();
+    }
+
 }
