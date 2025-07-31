@@ -108,7 +108,6 @@ const SegmentSetup = struct {
 const Synchronizer = struct {
     const Task = struct {
         segments: usize,
-
     };
     run: usize,
 };

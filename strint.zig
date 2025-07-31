@@ -103,7 +103,7 @@ const StrInt = struct {
         self.invariant();
     }
 
-    pub fn to_str(self: *Self, out: *ArrType) void {
+    pub fn to_str(self: Self, out: *ArrType) void {
         out.* = self.number.str;
         self.invariant();
     }
@@ -114,12 +114,13 @@ const StrInt = struct {
 };
 
 pub fn time_adds() void {
-    const iterations = 100_000_000;
+    const iterations = 1_000_000;
     const T = StrInt;
     var x = T.init();
+    var buf: T.ArrType = undefined;
     x.assign(0);
     const time = bench.microbench(T.add, .{&x, 10}, iterations);
-    const time2 = bench.microbench(T.string, .{x}, iterations);
+    const time2 = bench.microbench(T.to_str, .{x, &buf}, iterations);
     std.debug.print("{s}.add: {} ns\n", .{@typeName(T), @as(f64, @floatFromInt(time))/iterations});
-    std.debug.print("{s}.string: {} ns\n", .{@typeName(T), @as(f64, @floatFromInt(time2))/iterations});
+    std.debug.print("{s}.to_str: {} ns\n", .{@typeName(T), @as(f64, @floatFromInt(time2))/iterations});
 }
