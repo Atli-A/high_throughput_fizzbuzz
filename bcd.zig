@@ -105,81 +105,12 @@ const SegmentSetup = struct {
     }
 };
 
-const Synchornizer = struct {
+const Synchronizer = struct {
     const Task = struct {
-        task_id: usize,
+        segments: usize,
+
     };
-};
-
-const FizzBuzzer = struct {
-    const BLK_SIZE = 1 << 15;
-    const Self = @This();
-    mem: []u8,
-    allocator: std.mem.Allocator,
-    pipe_index: usize,
-    write_index: usize,
-
-
-    fn init(allocator: std.mem.Allocator) !Self {
-        return .{
-            .mem = try allocator.alloc(u8, 10000),
-            .allocator = allocator,
-            .write_index = 0,
-            .pipe_index = 0,
-        };
-    }
-
-    fn start(self: *Self) !void {
-        inline for (1..20) |i| {
-            try self.create(i);
-        }
-    }
-
-    fn pipe(self: *Self, block: bool) void {
-        if (block) {
-            if (self.write_index - self.pipe_index >= BLK_SIZE) {
-                _ = vmsplice(std.posix.STDOUT_FILENO, self.mem[self.pipe_index..self.pipe_index + BLK_SIZE]);
-                self.pipe_index += BLK_SIZE;
-            }
-        } else {
-            _ = vmsplice(std.posix.STDOUT_FILENO, self.mem[self.pipe_index..self.write_index]);
-            self.pipe_index = self.write_index;
-        }
-    }
-
-    fn create(self: *Self, comptime digits: usize) !void {
-        const starting_number = comptime_powi(10, digits-1);
-        const ending_number = comptime_powi(10, digits) - 1;
-        const generator = comptime comptime_rotate_slice(FizzBuzzToken, StandardFizzBuzz, starting_number - 1);
-        const segment_setup = SegmentSetup.from(generator, ending_number - starting_number);
-        
-
-        const byte_length = (
-            segment_setup.segment_count * Config.segment_length(segment_setup.core_generator, digits)
-            + Config.segment_length(segment_setup.remainder_generator, digits)
-        );
-        self.mem = try self.allocator.alloc(u8, byte_length);
-        self.write_index = 0;
-        self.pipe_index = 0;
-
-        var number = StrInt(digits).init();
-        number.assign(starting_number);
-       
-        for (0..segment_setup.segment_count) |_| {
-            self.write_index += Config.write_segment(digits, segment_setup.core_generator, &number, self.mem[self.write_index..]);
-            self.pipe(true);
-
-        }
-        self.write_index += Config.write_segment(digits, segment_setup.remainder_generator, &number, self.mem[self.write_index..]);
-        self.pipe(false);
-        std.time.sleep(10);
-        self.allocator.free(self.mem);
-    }
-
-    fn cleanup(self: Self) void {
-        self.allocator.free(self.mem);
-    }
-
+    run: usize,
 };
 
 pub fn main() !void {
